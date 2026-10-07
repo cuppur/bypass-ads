@@ -5,6 +5,7 @@ import android.util.LruCache
 import android.view.accessibility.AccessibilityNodeInfo
 import kotlinx.atomicfu.atomic
 import li.songe.gkd.META
+import li.songe.gkd.bypass.firstAcceptedQueryTarget
 import li.songe.gkd.data.ResolvedRule
 import li.songe.gkd.shizuku.casted
 import li.songe.gkd.util.InterruptRuleMatchException
@@ -494,23 +495,23 @@ class A11yContext(
         node: AccessibilityNodeInfo,
         selector: Selector,
         option: MatchOption,
+        accepts: ((AccessibilityNodeInfo) -> Boolean)? = null,
     ): AccessibilityNodeInfo? {
         if (selector.isMatchRoot) {
             return selector.match(
                 getCacheRoot() ?: return null,
                 transform,
                 option
-            )
+            )?.takeIf { accepts == null || accepts(it) }
         }
-        selector.match(node, transform, option)?.let {
-            return it
-        }
-        return transform.querySelector(node, selector, option)
+        return firstAcceptedQueryTarget(selector.match(node, transform, option),
+            { transform.querySelectorAll(node, selector, option) }, accepts)
     }
 
     fun queryRule(
         rule: ResolvedRule,
         node: AccessibilityNodeInfo,
+        accepts: ((AccessibilityNodeInfo) -> Boolean)? = null,
     ): AccessibilityNodeInfo? {
         currentRule = rule
         try {
@@ -526,16 +527,18 @@ class A11yContext(
                         queryNode,
                         selector,
                         rule.matchOption,
+                        accepts.takeIf { rule.matches.isEmpty() },
                     )
                     if (resultNode != null) break
                 }
                 if (resultNode == null) return null
             }
-            for (selector in rule.matches) {
+            for ((index, selector) in rule.matches.withIndex()) {
                 resultNode = querySelfOrSelector(
                     queryNode,
                     selector,
                     rule.matchOption,
+                    accepts.takeIf { index == rule.matches.lastIndex },
                 ) ?: return null
             }
             for (selector in rule.excludeMatches) {

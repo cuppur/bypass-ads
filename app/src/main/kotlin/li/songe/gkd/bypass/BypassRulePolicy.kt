@@ -164,7 +164,8 @@ object BypassRulePolicyResolver {
         bypassMode: String?,
         coordinate: Boolean,
     ): BypassAdStrategyMode = when (trust) {
-        BypassRuleTrust.BUNDLED_DEDICATED -> BypassAdStrategyMode.CONSERVATIVE
+        BypassRuleTrust.BUNDLED_DEDICATED ->
+            if (coordinate) BypassAdStrategyMode.CRAZY else BypassAdStrategyMode.CONSERVATIVE
         BypassRuleTrust.BUNDLED_GLOBAL -> modeFromMetadata(bypassMode)
         BypassRuleTrust.BYPASS_OVERRIDE -> modeFromMetadata(bypassMode)
         BypassRuleTrust.LOCAL_IMPORT_GLOBAL -> BypassAdStrategyMode.AGGRESSIVE

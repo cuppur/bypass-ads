@@ -47,6 +47,11 @@ interface BypassEngine {
     /** Product records: every finalized ad session (success + failure). */
     val sessionRecords: StateFlow<List<BypassSessionRecord>>
 
+    /** Aggregated over all retained ad records, not just the newest display rows. */
+    val unsuccessfulApps: StateFlow<List<BypassUnsuccessfulAppStats>>
+
+    suspend fun reportMissedAd(packageName: String): String
+
     /** Recent product-facing failure records (subset of [sessionRecords]). */
     val failureRecords: StateFlow<List<BypassFailureRecord>>
 
@@ -310,6 +315,9 @@ data class BypassFailureRecord(
             FailureReason.ACCESSIBILITY_NODE_MISSING -> "当前无法读取无障碍节点。"
             FailureReason.EVENT_MISSED -> "可能错过了页面变化事件。"
             FailureReason.MISCLICK_SUSPECTED -> "动作把界面带到了外部页面，已立即停止。"
+            FailureReason.VISUAL_CAPTURE_UNAVAILABLE -> "系统未提供小程序画面，无法完成视觉补查。"
+            FailureReason.VISUAL_RECOGNITION_UNAVAILABLE -> "本地文字识别暂时不可用。"
+            FailureReason.VISUAL_TARGET_STALE -> "复查时出口已变化或倒计时将结束，未点击旧位置。"
             FailureReason.UNKNOWN -> "暂时无法确定原因。"
         }
 }
@@ -333,6 +341,13 @@ data class BypassSessionRecord(
     val actions: List<String> = emptyList(),
     val candidates: List<BypassCandidateSnapshot> = emptyList(),
     val ruleOrigin: String? = null,
+    val candidateSeen: Boolean = false,
+    val matchedRules: List<String> = emptyList(),
+    val timeline: List<String> = emptyList(),
+    val actedRuleKey: Int? = null,
+    val actedGroupKey: Int? = null,
+    val actedCandidateBounds: String? = null,
+    val hasAdEvidence: Boolean = false,
 ) {
     val isSuccess: Boolean get() = result == BypassSessionResult.SUCCESS_CONFIRMED
     val label: String
@@ -343,6 +358,15 @@ data class BypassSessionRecord(
             BypassSessionResult.UNRESOLVED -> "无法确认"
             BypassSessionResult.MISCLICK_SUSPECTED -> "疑似误触"
         }
+}
+
+data class BypassUnsuccessfulAppStats(
+    val packageName: String,
+    val confirmedFailures: Int,
+    val unconfirmed: Int,
+    val lastTime: Long,
+) {
+    val total: Int get() = confirmedFailures + unconfirmed
 }
 
 /** Product stats, all derived from SUCCESS_CONFIRMED sessions. */

@@ -11,7 +11,7 @@ import li.songe.gkd.store.storeFlow
  *
  * The GKD matcher still does the selector work; this layer decides, per
  * strategy mode, rule trust, and ad context, whether a *generic* candidate
- * is allowed to run. Curated mature dedicated rules are not gated here.
+ * is allowed to run. Curated app rules have a narrower trusted path.
  */
 object BypassStrategyGate {
 
@@ -60,13 +60,14 @@ object BypassStrategyGate {
      *  - High-risk hosts (WeChat / Alipay / ...) deny every non-exempt
      *    source outright. Exempt sources (BUNDLED_DEDICATED / BYPASS_OVERRIDE)
      *    only waive "untrusted source"; they still run the FULL gate below:
-     *    real candidate -> window -> size -> strategy -> ad context.
+     *    real candidate -> size -> strategy -> ad context, with a startup
+     *    deadline for ambiguous structural/coordinate candidates.
      *  - A null candidate (no exit semantics, or negative/sensitive text) is
      *    a HARD denial for EVERY origin — nothing ever acts as a fake
      *    SKIP_TEXT ("candidate ?: SKIP_TEXT" is forbidden).
      *  - On normal (non-high-risk) hosts, mature BUNDLED_DEDICATED rules keep
      *    the low-cost trusted path (real candidate required, no window/size/
-     *    strategy/context gating).
+     *    strategy/context gating; coordinates still require CRAZY).
      */
     fun evaluateExecution(
         candidate: BypassExitCandidateType?,
@@ -78,6 +79,9 @@ object BypassStrategyGate {
         rulePolicy: BypassRulePolicy,
         contextLevel: BypassAdContextLevel,
         inWindow: Boolean,
+        verifiedMiniLayout: Boolean = false,
+        verifiedVisualExit: Boolean = false,
+        visualTestHost: Boolean = false,
     ): String? {
         // High-risk hosts: untrusted sources are always denied.
         val isHighRisk = isBypassHighRiskApp(packageName)
@@ -93,6 +97,24 @@ object BypassStrategyGate {
         if (candidate == null) {
             return BypassRejectReason.NEGATIVE_SEMANTIC
         }
+        // OCR is an internal, proof-backed path. A node/imported rule cannot
+        // turn a coordinate into a visual exit by changing its candidate name.
+        if (candidate == BypassExitCandidateType.LOCAL_VISUAL_EXIT &&
+            (!verifiedVisualExit || rulePolicy.trust != BypassRuleTrust.BYPASS_OVERRIDE ||
+                rulePolicy.coordinate || contextLevel != BypassAdContextLevel.STRONG ||
+                !BypassVisualExitPolicy.isSupportedHost(packageName, activityName, visualTestHost))
+        ) return BypassRejectReason.NEGATIVE_SEMANTIC
+        if (candidate == BypassExitCandidateType.CURATED_MINI_EXIT &&
+            (!verifiedMiniLayout || rulePolicy.trust != BypassRuleTrust.BUNDLED_DEDICATED ||
+                rulePolicy.coordinate || contextLevel != BypassAdContextLevel.STRONG ||
+                !isMiniProgramActivity(packageName, activityName))
+        ) return BypassRejectReason.NEGATIVE_SEMANTIC
+
+        if (rulePolicy.coordinate && !policy.allowCoordinateFallback) return BypassRejectReason.STRATEGY_GATE
+        if (candidate == BypassExitCandidateType.DEDICATED_EXIT &&
+            (isHighRisk || rulePolicy.trust != BypassRuleTrust.BUNDLED_DEDICATED ||
+                nodeWidth !in 1..420 || nodeHeight !in 1..260)
+        ) return BypassRejectReason.NEGATIVE_SEMANTIC
 
         // On normal hosts, curated dedicated rules run in every mode without
         // candidate gating (but still require a real semantic candidate).
@@ -102,13 +124,14 @@ object BypassStrategyGate {
             return null
         }
 
-        // The post-entry ad window applies to generic/override candidates.
-        if (!inWindow) {
+        // Explicit exits remain available for ads appearing later in a host
+        // activity. Only ambiguous structural/coordinate guesses expire.
+        if (!inWindow && !BypassRuleTiming.allowsLateCandidate(candidate, contextLevel)) {
             return BypassRejectReason.OUTSIDE_WINDOW
         }
 
         // Size constraint: oversized controls are not close buttons.
-        if (nodeWidth > 420 || nodeHeight > 260) {
+        if (nodeWidth !in 1..420 || nodeHeight !in 1..260) {
             return BypassRejectReason.TOO_LARGE
         }
 
@@ -122,6 +145,9 @@ object BypassStrategyGate {
             BypassExitCandidateType.CLOSE_ICON -> policy.allowGlyphClose
             BypassExitCandidateType.STRUCTURAL_CLOSE -> policy.allowStructuralNoSemanticClose
             BypassExitCandidateType.COORDINATE_FALLBACK -> policy.allowCoordinateFallback
+            BypassExitCandidateType.DEDICATED_EXIT -> false // handled only by the curated path above
+            BypassExitCandidateType.CURATED_MINI_EXIT -> policy.allowGenericCloseText
+            BypassExitCandidateType.LOCAL_VISUAL_EXIT -> policy.allowGenericCloseText
         }
         if (!allowed) {
             return BypassRejectReason.STRATEGY_GATE

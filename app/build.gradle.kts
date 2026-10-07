@@ -246,6 +246,8 @@ loc {
 }
 
 dependencies {
+    // Bundled Chinese model: local recognition, no GMS model download.
+    implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
     implementation(libs.kotlin.stdlib)
 
     implementation(project(":selector"))

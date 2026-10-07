@@ -13,6 +13,8 @@ import kotlinx.atomicfu.getAndUpdate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -21,6 +23,11 @@ import kotlinx.coroutines.withTimeoutOrNull
 import li.songe.gkd.BYPASS_SPLASH_SUBS_ID
 import li.songe.gkd.META
 import li.songe.gkd.bypass.BypassActionBudget
+import li.songe.gkd.bypass.BypassExecutionArbiter
+import li.songe.gkd.bypass.BypassVisualSkipper
+import li.songe.gkd.bypass.BypassAdCategory
+import li.songe.gkd.bypass.GkdBypassEngine
+import li.songe.gkd.bypass.BypassAdActionPolicy
 import li.songe.gkd.bypass.BypassAdContextLevel
 import li.songe.gkd.bypass.BypassAdContextTracker
 import li.songe.gkd.bypass.BypassOutcome
@@ -36,6 +43,11 @@ import li.songe.gkd.bypass.BypassExitClassifier
 import li.songe.gkd.bypass.BypassRulePolicyResolver
 import li.songe.gkd.bypass.BypassRuleTrust
 import li.songe.gkd.bypass.BypassRuntimeFlow
+import li.songe.gkd.bypass.BypassMiniProgramLayouts
+import li.songe.gkd.bypass.BypassMiniProgramTargets
+import li.songe.gkd.bypass.BypassRootAdObserver
+import li.songe.gkd.bypass.BypassObservedAdEvidence
+import li.songe.gkd.bypass.BypassBlackbox
 import li.songe.gkd.bypass.BypassStrategyGate
 import li.songe.gkd.bypass.BypassTeachRules
 import li.songe.gkd.bypass.BypassWindowAnchor
@@ -76,14 +88,34 @@ private val actionDispatcher = Executors.newSingleThreadExecutor().asCoroutineDi
 
 private val latestServiceMode = atomic(0)
 private val latestServiceTime = atomic(0L)
+// A service reconnect / automation-mode handover shares the same action owner.
+private val bypassExecution = BypassExecutionArbiter()
 
 class A11yRuleEngine(val service: A11yCommonImpl) {
     private val a11yContext = A11yContext(this)
+    private val visualSkipper by lazy {
+        BypassVisualSkipper(service, bypassExecution,
+            canRun = { effective && scope.isActive && isInteractive && storeFlow.value.enableMatch &&
+                !activityRuleFlow.value.blockMatch && isBypassAppEnabled(topActivityFlow.value.appId) &&
+                GkdBypassEngine.adCategories.value.any { it.category == BypassAdCategory.SPLASH && it.enabled } },
+            freshPackage = { getTimeoutActiveWindow()?.packageName?.toString() },
+            onVerifiedExit = {
+                activityRuleFlow.value.currentRules.filter { it.subsItem.id == BYPASS_SPLASH_SUBS_ID }.forEach { it.rearmAfterAdExit() }
+                val top = topActivityFlow.value
+                BypassAdContextTracker.clearWindowEvidence(top.appId, top.activityId)
+            })
+    }
     private val effective get() = latestServiceMode.value == service.mode.value
     private val hasOthersService = when (service.mode) {
         AutomatorModeOption.A11yMode -> uiAutomationFlow.value != null
         AutomatorModeOption.AutomationMode -> A11yService.instance != null
     }
+
+    private fun canObserveAds(packageName: String = topActivityFlow.value.appId): Boolean =
+        packageName !in setOf(META.appId, systemUiAppId, imeAppId, launcherAppId) &&
+        BypassRootAdObserver.canObserve(packageName) &&
+            (packageName in setOf("com.tencent.mm", "com.eg.android.AlipayGphone") ||
+                storeFlow.value.enableGenericFallback || activityRuleFlow.value.appRules.any { it.subsItem.id == BYPASS_SPLASH_SUBS_ID })
 
     /** Per-top-app exit-attempt counters for strategy-aware bounded retries. */
     @Volatile
@@ -98,6 +130,7 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
         val serviceTime = System.currentTimeMillis()
         latestServiceMode.value = service.mode.value
         latestServiceTime.value = serviceTime
+        visualSkipper.start(scope)
         if (storeFlow.value.enableBlockA11yAppList && !actualBlockA11yAppList.contains(topAppIdFlow.value)) {
             startQueryJob(byForced = true)
         }
@@ -192,6 +225,7 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
     }
 
     private val queryEvents = mutableListOf<A11yEvent>()
+    @Volatile private var eventNeedsSettling = false
     private suspend fun consumeEvent(headEvent: A11yEvent) {
         val consumedEvents = synchronized(eventDeque) {
             if (eventDeque.firstOrNull() !== headEvent) return
@@ -234,11 +268,12 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
             BypassDiagnostics.record(FailureReason.MASTER_DISABLED, evAppId, evActivityId, "matching_disabled")
             return
         }
-        if (evAppId != rightAppId || activityRule.skipConsumeEvent) {
+        if (evAppId != rightAppId || (activityRule.skipConsumeEvent && !canObserveAds(rightAppId))) {
             return
         }
         synchronized(queryEvents) { queryEvents.addAll(consumedEvents) }
         a11yContext.interruptKey++
+        eventNeedsSettling = canObserveAds(rightAppId)
         startQueryJob(byEvent = latestEvent)
     }
 
@@ -277,6 +312,9 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
     @Volatile
     private var querying = false
 
+    @Volatile
+    private var bypassVerificationJob: Job? = null
+
     @Synchronized
     private fun startQueryJob(
         byEvent: A11yEvent? = null,
@@ -292,13 +330,13 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
         }
         if (activityRuleFlow.value.currentRules.isEmpty()) {
             BypassDiagnostics.record(FailureReason.NO_RULE_FOR_APP, detail = "no_resolved_rules")
-            return
+            if (!canObserveAds()) return
         }
         if (querying) return
         // 无障碍从零启动时获取 safeActiveWindow 非常耗时
         if (byEvent == null && service.justStarted && !hasOthersService) return checkFutureStartJob()
+        querying = true
         scope.launchTry(queryDispatcher) {
-            querying = true
             val st = if (META.debuggable) System.currentTimeMillis() else 0L
             try {
                 if (META.debuggable) {
@@ -309,28 +347,36 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
                 }
                 queryAction(byEvent, byForced, byDelayRule)
             } finally {
+                querying = false
                 checkFutureStartJob()
                 if (META.debuggable) {
                     val et = System.currentTimeMillis() - st
                     Log.d("A11yRuleEngine", "startQueryJob end $et ms")
                 }
-                querying = false
             }
         }
     }
 
+    @Volatile private var futureQueryJob: Job? = null
+
+    @Synchronized
     private fun checkFutureStartJob() {
+        if (futureQueryJob?.isActive == true || !isInteractive) return
         val t = System.currentTimeMillis()
-        if (t - lastTriggerTime < 3000L || t - appChangeTime < 3000L) {
-            scope.launch(actionDispatcher) {
-                delay(300)
-                startQueryJob()
-            }
-        } else if (activityRuleFlow.value.hasFeatureAction) {
-            scope.launch(actionDispatcher) {
-                delay(300)
-                startQueryJob(byForced = true)
-            }
+        val nearEntryOrAction = t - lastTriggerTime < 3000L || t - appChangeTime < 3000L
+        val activityRule = activityRuleFlow.value
+        val forced = !nearEntryOrAction && activityRule.hasFeatureAction
+        val miniPolling = storeFlow.value.enableMatch && !activityRule.blockMatch && isBypassAppEnabled(activityRule.topActivity.appId) &&
+            BypassAdContextTracker.isMiniProgramAdActivity(activityRule.topActivity.appId, activityRule.topActivity.activityId)
+        val settling = eventNeedsSettling
+        if (!nearEntryOrAction && !forced && !miniPolling && !settling) return
+        futureQueryJob = scope.launch(actionDispatcher) {
+            // A mini-program SDK may expose a close control without emitting
+            // a new accessibility event. Keep a single low-frequency watcher.
+            delay(if (nearEntryOrAction && t - appChangeTime < 1500L) 150 else if (settling) 250 else if (!nearEntryOrAction && !forced && miniPolling) 1000 else 300)
+            futureQueryJob = null
+            eventNeedsSettling = false
+            startQueryJob(byForced = forced)
         }
     }
 
@@ -346,6 +392,17 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
         }
         scope.launch(actionDispatcher) {
             delay(300)
+            startQueryJob()
+        }
+    }
+
+    private fun scheduleBypassRetry(sessionId: String, context: TopActivity) {
+        scope.launch(actionDispatcher) {
+            // A failed action is still inside queryAction: an immediate
+            // startQueryJob is discarded by `querying`. Re-enter after this
+            // pass, using a normal query so rules without forcedTime can run.
+            delay(300)
+            if (topActivityFlow.value != context || !BypassDetectionSessions.isActive(sessionId)) return@launch
             startQueryJob()
         }
     }
@@ -401,9 +458,34 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
                 }
             }
         }
+        var bypassRoot: AccessibilityNodeInfo? = null
+        var bypassRootRead = false
+        var rootAdObservation: ObservedRootAd? = null
+        if (canObserveAds()) {
+            bypassRootRead = true
+            bypassRoot = getTimeoutActiveWindow()
+            if (bypassRoot == null) BypassDetectionSessions.noteRootProbe(activityRule.topActivity.appId,
+                activityRule.topActivity.activityId, "ROOT_UNAVAILABLE:timeout_or_missing")
+            bypassRoot?.let { root ->
+                val pkg = root.packageName?.toString()
+                if (pkg != activityRule.topActivity.appId) {
+                    pkg?.let { scope.launch(eventDispatcher) { fixAppId(it) } }
+                    return
+                }
+                a11yContext.clearNodeCache()
+                rootAdObservation = recordAdObservation(root, activityRule)
+            }
+        }
         if (activityRule.skipMatch) {
             // 如果当前应用没有规则/暂停匹配, 则不去调用获取事件节点避免阻塞
             BypassDiagnostics.record(FailureReason.NO_RULE_FOR_APP, detail = "resolved_rules_not_runnable")
+            val reason = when {
+                !isBypassAppEnabled(activityRule.topActivity.appId) -> FailureReason.APP_DISABLED
+                activityRule.appRules.any { it.subsItem.id == BYPASS_SPLASH_SUBS_ID } &&
+                    activityRule.activityRules.none { it.subsItem.id == BYPASS_SPLASH_SUBS_ID } -> FailureReason.ACTIVITY_MISMATCH
+                else -> FailureReason.NO_RULE_FOR_APP
+            }
+            BypassDetectionSessions.noteMatcherReason(activityRule.topActivity.appId, activityRule.topActivity.activityId, reason)
             return
         }
         var lastNode = if (newEvents == null || newEvents.size <= 1) {
@@ -425,15 +507,33 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
                 a11yContext.clearNodeCache(lastNode)
             }
         }
+        if (bypassRoot != null) a11yContext.clearNodeCache()
+        var queryExecutionToken: Long? = null
+        try {
         for (rule in activityRule.priorityRules) { // 规则数量有可能过多导致耗时过长
             if (!effective) return
-            if (checkOutDate(activityRule, tempStateEvent)) break
+            if (checkOutDate(activityRule, tempStateEvent)) {
+                BypassDetectionSessions.activeId(activityRule.topActivity.appId, activityRule.topActivity.activityId)?.let {
+                    BypassDetectionSessions.noteStage(it, "QUERY_INVALIDATED:new_window_event=true")
+                }
+                break
+            }
             if (delayRule != null && delayRule !== rule) continue
             if (rule.subsItem.id == BYPASS_SPLASH_SUBS_ID && !isBypassAppEnabled(topActivityFlow.value.appId)) {
                 BypassDiagnostics.record(FailureReason.APP_DISABLED, detail = "bypass_app_opt_out")
+                BypassDetectionSessions.noteMatcherReason(activityRule.topActivity.appId, activityRule.topActivity.activityId, FailureReason.APP_DISABLED)
                 continue
             }
-            if (rule.status != RuleStatus.StatusOk) continue
+            val initialStatus = rule.status
+            if (initialStatus != RuleStatus.StatusOk) {
+                if (rule.subsItem.id == BYPASS_SPLASH_SUBS_ID &&
+                    (initialStatus == RuleStatus.Status6 || delayRule === rule)) {
+                    BypassDetectionSessions.activeId(activityRule.topActivity.appId, activityRule.topActivity.activityId)?.let {
+                        BypassDetectionSessions.noteStage(it, "RULE_STATUS:rule=${rule.key ?: -1} status=${initialStatus.diagnosticCode}")
+                    }
+                }
+                continue
+            }
             if (byForced && !rule.checkForced()) continue
             lastNode?.let { n ->
                 val refreshOk = (!lastNodeUsed) || (try {
@@ -450,8 +550,20 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
                     lastNode = null
                 }
             }
-            val nodeVal = (lastNode ?: getTimeoutActiveWindow()) ?: run {
+            // A countdown content event commonly originates from its TextView.
+            // Its sibling exit and the ad label are outside that subtree. All
+            // ad rules share ONE fresh window read per pass, including after
+            // startup polling has ended; ordinary automation keeps event scope.
+            val nodeVal = (if (rule.subsItem.id == BYPASS_SPLASH_SUBS_ID) {
+                if (!bypassRootRead) {
+                    bypassRootRead = true
+                    bypassRoot = getTimeoutActiveWindow()
+                    a11yContext.clearNodeCache()
+                }
+                bypassRoot
+            } else lastNode ?: getTimeoutActiveWindow()) ?: run {
                 BypassDiagnostics.record(FailureReason.ACCESSIBILITY_NODE_MISSING, detail = "active_window_unavailable")
+                BypassDetectionSessions.noteMatcherReason(activityRule.topActivity.appId, activityRule.topActivity.activityId, FailureReason.ACCESSIBILITY_NODE_MISSING)
                 continue
             }
             val rightAppId = nodeVal.packageName?.toString() ?: break
@@ -475,13 +587,15 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
             if (!matchApp) {
                 if (rule.subsItem.id == BYPASS_SPLASH_SUBS_ID) {
                     BypassDiagnostics.record(FailureReason.ACTIVITY_MISMATCH, detail = "rule_activity_mismatch")
+                    BypassDetectionSessions.noteMatcherReason(rightAppId, activityRule.topActivity.activityId, FailureReason.ACTIVITY_MISMATCH)
                 }
                 continue
             }
             BypassPerfTrace.selectorQueried()
-            val target = a11yContext.queryRule(rule, nodeVal) ?: run {
+            val target = queryAdRule(a11yContext, rule, nodeVal) ?: run {
                 if (rule.subsItem.id == BYPASS_SPLASH_SUBS_ID) {
                     BypassDiagnostics.record(FailureReason.SELECTOR_NO_MATCH, detail = "gkd_selector_no_match")
+                    BypassDetectionSessions.noteMatcherReason(rightAppId, activityRule.topActivity.activityId, FailureReason.SELECTOR_NO_MATCH)
                     if (BypassTeachRules.isPendingVerification(rule.g.appId, rule.g.group.key)) {
                         // A first no-match is never a verification failure:
                         // only the armed verification window decides.
@@ -493,30 +607,35 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
             BypassPerfTrace.matched(rule.statusText())
             val bypassContext = topActivityFlow.value
             val isBypassRule = rule.subsItem.id == BYPASS_SPLASH_SUBS_ID
+            // Wait for fresh-state verification before spending another
+            // attempt, including queries queued by countdown/layout events.
+            if (isBypassRule && (bypassVerificationJob?.isActive == true || bypassExecution.busy)) break
             if (META.debuggable && isBypassRule) {
                 Log.d("A11yRuleEngine", "bypass rule matched: ${rule.g.group.name}/${rule.rule.name} status=${rule.status}")
             }
             var bypassSessionId: String? = null
             var bypassMaxAttempts = 0
+            var bypassCandidateType: BypassExitCandidateType? = null
+            var bypassExecutionToken: Long? = null
             if (isBypassRule) {
                 val mode = BypassStrategyGate.currentStrategyMode()
                 val rulePolicy = BypassRulePolicyResolver.resolve(rule)
-                // A. Identity-derived minimum mode. Rule names are log
-                // readability only; the boundary is trust + bypassMode.
-                if (mode.ordinal < rulePolicy.minimumMode.ordinal) {
-                    if (META.debuggable) {
-                        Log.d("A11yRuleEngine", "bypass rule below minimum mode: ${rule.g.group.name}/${rule.rule.name} trust=${rulePolicy.trust}")
-                    }
-                    BypassDiagnostics.record(
-                        FailureReason.GLOBAL_EXCLUDED,
-                        packageName = bypassContext.appId,
-                        activityName = bypassContext.activityId,
-                        detail = "CLOSE_CANDIDATE_REJECTED reason=RULE_LEVEL trust=${rulePolicy.trust}",
-                    )
-                    continue
-                }
                 // B. Classify the matched control.
-                val candidate = BypassExitClassifier.classifyNode(target)
+                if (!BypassStrategyGate.isSaneCandidate(target)) continue
+                val verifiedMiniLayout = BypassMiniProgramLayouts.admitsNode(
+                    bypassContext.appId, bypassContext.activityId, rulePolicy,
+                    rule.rule.matches.orEmpty() + rule.rule.anyMatches.orEmpty(), target,
+                )
+                val nativeHeaderClose = BypassAdContextTracker.isMiniProgramAdActivity(bypassContext.appId, bypassContext.activityId) &&
+                    BypassExitClassifier.isMiniProgramNavigationClose(target)
+                val candidate = if (nativeHeaderClose) null else if (verifiedMiniLayout) BypassExitCandidateType.CURATED_MINI_EXIT else
+                    BypassExitClassifier.classifyNode(target) ?: if (
+                    rulePolicy.trust == li.songe.gkd.bypass.BypassRuleTrust.BUNDLED_DEDICATED &&
+                    !rulePolicy.coordinate && !li.songe.gkd.bypass.isBypassHighRiskApp(bypassContext.appId)
+                ) BypassExitClassifier.classifyDedicatedNode(
+                    target, rule.rule.matches.orEmpty() + rule.rule.anyMatches.orEmpty(),
+                ) else null
+                bypassCandidateType = candidate
                 // C. THE shared execution gate (P0-1). Every origin — bundled
                 //    dedicated, official override, imported, teach — runs this
                 //    exact function; high-risk exempt sources only waive
@@ -533,22 +652,42 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
                     val r = target.casted.boundsInScreen
                     "${r.left},${r.top},${r.right},${r.bottom}"
                 }.getOrNull()
-                val reject = BypassStrategyGate.evaluateExecution(
-                    candidate = candidate,
-                    packageName = bypassContext.appId,
-                    activityName = bypassContext.activityId,
-                    nodeWidth = target.casted.boundsInScreen.width(),
-                    nodeHeight = target.casted.boundsInScreen.height(),
-                    policy = mode.policy,
-                    rulePolicy = rulePolicy,
-                    contextLevel = BypassAdContextTracker.evaluateCandidateContext(
-                        bypassContext.appId,
-                        bypassContext.activityId,
-                        root = nodeVal,
-                        candidateBounds = candidateBounds,
-                        candidateType = candidate,
-                    ),
-                    inWindow = BypassStrategyGate.inStartupWindow(bypassContext.appId),
+                val adjacentCountdown =
+                    candidate in setOf(BypassExitCandidateType.CLOSE_TEXT, BypassExitCandidateType.CLOSE_DESC) &&
+                    BypassAdContextTracker.isMiniProgramAdActivity(bypassContext.appId, bypassContext.activityId) &&
+                    (BypassExitClassifier.hasAdjacentCloseCountdown(target) ||
+                        rootAdObservation?.closeCountdownNodes?.contains(target) == true)
+                val sameRootProof = rootAdObservation?.let { observed ->
+                    observed.node == target && observed.evidence != null
+                } == true
+                val contextLevel = if (verifiedMiniLayout || sameRootProof) BypassAdContextLevel.STRONG else BypassAdContextTracker.evaluateCandidateContext(
+                    bypassContext.appId, bypassContext.activityId, root = nodeVal,
+                    candidateBounds = candidateBounds, candidateType = candidate,
+                    candidateViewId = target.viewIdResourceName, candidateText = target.text?.toString(),
+                    candidateDescription = target.contentDescription?.toString(),
+                    candidateHasAdjacentCountdown = adjacentCountdown,
+                )
+                val evidence = when {
+                    verifiedMiniLayout -> BypassObservedAdEvidence.VERIFIED_MINI_AD_LAYOUT
+                    candidate == BypassExitCandidateType.SKIP_TEXT -> BypassObservedAdEvidence.SKIP_CONTROL
+                    adjacentCountdown -> BypassObservedAdEvidence.CLOSE_WITH_COUNTDOWN
+                    candidate != null && contextLevel == BypassAdContextLevel.STRONG -> BypassObservedAdEvidence.EXPLICIT_AD_WITH_EXIT
+                    else -> null
+                }
+                val observedSessionId = evidence?.let {
+                    BypassDetectionSessions.observeAd(bypassContext.appId, bypassContext.activityId, mode, it, rulePolicy.trust)
+                } ?: BypassDetectionSessions.activeId(bypassContext.appId, bypassContext.activityId)
+                if (observedSessionId != null && candidate != null) {
+                    BypassDetectionSessions.noteCandidate(observedSessionId, bypassContext.appId, bypassContext.activityId,
+                        candidate, rule.statusText(), target, ruleKey = rule.rule.key, groupKey = rule.g.group.key)
+                    BypassDetectionSessions.noteStage(observedSessionId,
+                        "GATE:type=${candidate.name} trust=${rulePolicy.trust} mode=$mode context=$contextLevel adjacent=$adjacentCountdown")
+                }
+                val reject = if (nativeHeaderClose) "NAVIGATION_CONTROL" else if (mode.ordinal < rulePolicy.minimumMode.ordinal) "RULE_LEVEL" else BypassStrategyGate.evaluateExecution(
+                    candidate = candidate, packageName = bypassContext.appId, activityName = bypassContext.activityId,
+                    nodeWidth = target.casted.boundsInScreen.width(), nodeHeight = target.casted.boundsInScreen.height(),
+                    policy = mode.policy, rulePolicy = rulePolicy, contextLevel = contextLevel,
+                    inWindow = BypassStrategyGate.inStartupWindow(bypassContext.appId), verifiedMiniLayout = verifiedMiniLayout,
                 )
                 if (reject != null) {
                     if (META.debuggable) {
@@ -576,6 +715,7 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
                     mode,
                     rulePolicy.trust,
                 ) ?: continue
+                BypassDetectionSessions.executionAllowed(sessionId, rule.key, candidate)
                 candidate?.let {
                     BypassAdContextTracker.noteCandidate(
                         bypassContext.appId,
@@ -593,6 +733,7 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
                         target,
                         ruleKey = rule.rule.key,
                         groupKey = rule.g.group.key,
+                        admitted = true,
                     )
                 }
                 BypassDetectionSessions.strategyApplied(bypassContext.appId, bypassContext.activityId, mode)
@@ -609,10 +750,13 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
             // match -> gates (above) -> action delay (WAIT only, no budget)
             // -> status/outdate -> reserveAttempt -> performAction -> verifier.
             if (isBypassRule) {
+                val pendingActionDelay = rule.checkDelay() && rule.actionDelayJob.value == null
+                val runtimeStatus = rule.status
+                val runtimeOutOfDate = checkOutDate(activityRule, tempStateEvent)
                 val decision = BypassRuntimeFlow.decide(
-                    ruleHasPendingActionDelay = rule.checkDelay() && rule.actionDelayJob.value == null,
-                    ruleStatusOk = rule.status == RuleStatus.StatusOk,
-                    outOfDate = checkOutDate(activityRule, tempStateEvent),
+                    ruleHasPendingActionDelay = pendingActionDelay,
+                    ruleStatusOk = runtimeStatus == RuleStatus.StatusOk,
+                    outOfDate = runtimeOutOfDate,
                     budgetUsed = BypassActionBudget.attemptsUsed(bypassSessionId!!),
                     maxAttempts = bypassMaxAttempts,
                 )
@@ -620,6 +764,8 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
                     BypassRuntimeFlow.Decision.WAIT_FOR_DELAY -> {
                         BypassDiagnostics.record(FailureReason.WAITING_FOR_DELAY, detail = "rule_action_delay")
                         BypassDetectionSessions.waitingForDelay(bypassContext.appId, bypassContext.activityId)
+                        BypassDetectionSessions.noteStage(bypassSessionId,
+                            "ACTION_DELAY_SCHEDULED:rule=${rule.key ?: -1} delay_ms=${rule.actionDelay}")
                         rule.actionDelayJob.value = scope.launch(actionDispatcher) {
                             delay(rule.actionDelay)
                             rule.actionDelayJob.value = null
@@ -627,7 +773,11 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
                         }
                         continue
                     }
-                    BypassRuntimeFlow.Decision.NOT_READY -> break
+                    BypassRuntimeFlow.Decision.NOT_READY -> {
+                        BypassDetectionSessions.noteStage(bypassSessionId,
+                            "RUNTIME_NOT_READY:rule=${rule.key ?: -1} status=${runtimeStatus.diagnosticCode} outdated=$runtimeOutOfDate")
+                        break
+                    }
                     BypassRuntimeFlow.Decision.BUDGET_EXHAUSTED -> {
                         if (META.debuggable) {
                             Log.d("A11yRuleEngine", "bypass budget exhausted for session $bypassSessionId")
@@ -643,7 +793,10 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
                     }
                     BypassRuntimeFlow.Decision.PROCEED -> {
                         // Reserve exactly once, immediately before the action.
+                        bypassExecutionToken = bypassExecution.tryAcquire() ?: break
+                        queryExecutionToken = bypassExecutionToken
                         if (!BypassActionBudget.reserveAttempt(bypassSessionId, bypassMaxAttempts)) {
+                            bypassExecution.release(bypassExecutionToken)
                             BypassDetectionSessions.confirmedFailure(bypassSessionId, FailureReason.ACTION_NO_EFFECT)
                             continue
                         }
@@ -672,10 +825,31 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
             // active session — a candidate B appearing later cannot pollute
             // the verification of action A.
             val actionEvidence = bypassSessionId?.let { BypassDetectionSessions.captureActionEvidence(it) }
-            val actionResult = rule.performAction(target)
+                ?.copy(ruleIndex = rule.index, groupAppId = rule.g.appId, scopedIdentity = true)
+            if (bypassSessionId != null && actionEvidence != null) BypassDetectionSessions.bindActionEvidence(bypassSessionId, actionEvidence)
+            val centerAction = isBypassRule && BypassAdActionPolicy.useCenter(
+                candidate = bypassCandidateType,
+                miniProgram = BypassAdContextTracker.isMiniProgramAdActivity(bypassContext.appId, bypassContext.activityId),
+                attempt = bypassSessionId?.let { BypassActionBudget.attemptsUsed(it) } ?: 1,
+                action = rule.rule.action ?: if (rule.rule.swipeArg != null) "swipe" else null,
+                hasCustomPosition = rule.rule.position != null,
+                width = target.casted.boundsInScreen.width(), height = target.casted.boundsInScreen.height(),
+            )
+            val actionResult = try { if (centerAction) {
+                // Native web/SDK nodes can acknowledge ACTION_CLICK without
+                // forwarding it to the visible close control. This reviewed
+                // small target is clicked at its actual bounded center.
+                ActionPerformer.ClickCenter.perform(target, rule.rule)
+            } else rule.performAction(target) } catch (error: Throwable) {
+                bypassExecutionToken?.let(bypassExecution::release)
+                throw error
+            }
             BypassPerfTrace.actionFinished(rule.statusText())
             BypassPerfTrace.actionFinishedT3(rule.statusText())
-            bypassSessionId?.let { BypassDetectionSessions.actionAttempted(it, actionResult.action) }
+            bypassSessionId?.let {
+                BypassDetectionSessions.actionAttempted(it, actionResult.action)
+                BypassDetectionSessions.noteActionResult(it, actionResult.result, actionResult.action)
+            }
             if (actionResult.result) {
                 BypassPerfTrace.actionSucceeded()
                 val topActivity = topActivityFlow.value
@@ -685,8 +859,9 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
                     // OutcomeVerifier is the only retry scheduler for bypass:
                     // Action -> fresh-state verify -> ad still there + budget ->
                     // fresh query for the next exit candidate.
-                    scope.launch(actionDispatcher) {
+                    bypassVerificationJob = scope.launch(actionDispatcher) {
                         val actionStart = System.currentTimeMillis()
+                        BypassDetectionSessions.noteStage(sid, "VERIFY_START")
                         val outcome = BypassOutcomeVerifier.verify(
                             packageName = bypassContext.appId,
                             // P0-2: the verifier re-checks THE SAME ad region /
@@ -709,6 +884,12 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
                         BypassDetectionSessions.outcomeConfirmed(sid, outcome, latency)
                         when (outcome) {
                             BypassOutcome.SUCCESS_CONFIRMED -> {
+                                // A second mini-program ad can appear without an
+                                // Activity change. Re-arm only after verified exit.
+                                activityRule.priorityRules.filter {
+                                    it.subsItem.id == BYPASS_SPLASH_SUBS_ID &&
+                                        it.g.appId == rule.g.appId && it.g.group.key == rule.g.group.key
+                                }.forEach { it.rearmAfterAdExit() }
                                 BypassTeachRules.markVerification(rule.g.appId, rule.g.group.key, success = true)
                                 if (actionResult.action != ActionPerformer.None.action) {
                                     showActionToast(rule)
@@ -723,16 +904,33 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
                                 )
                             }
                             BypassOutcome.ACTION_NO_EFFECT,
-                            BypassOutcome.UNRESOLVED,
                             -> {
                                 if (BypassActionBudget.attemptsUsed(sid) < bypassMaxAttempts) {
+                                    rule.rearmAfterAdExit()
                                     BypassDiagnostics.record(FailureReason.ACTION_NO_EFFECT, detail = "outcome=$outcome requery")
-                                    startQueryJob(byForced = true)
+                                    BypassDetectionSessions.noteStage(sid, "RETRY:FRESH_QUERY")
+                                    scheduleBypassRetry(sid, bypassContext)
                                 } else {
                                     BypassDetectionSessions.confirmedFailure(sid, FailureReason.ACTION_NO_EFFECT)
                                 }
                             }
+                            BypassOutcome.UNRESOLVED -> {
+                                // Missing fresh evidence is not proof that
+                                // the ad remained. Preserve an unconfirmed
+                                // outcome instead of manufacturing a failure.
+                                if (BypassActionBudget.attemptsUsed(sid) < bypassMaxAttempts) {
+                                    rule.rearmAfterAdExit()
+                                    BypassDetectionSessions.noteStage(sid, "RETRY:FRESH_QUERY")
+                                    scheduleBypassRetry(sid, bypassContext)
+                                } else {
+                                    BypassDetectionSessions.unresolved(sid, "verification_unavailable")
+                                }
+                            }
                         }
+                    }
+                    bypassExecutionToken?.let { token ->
+                        bypassVerificationJob?.invokeOnCompletion { bypassExecution.release(token) }
+                        queryExecutionToken = null // the verifier now owns release, including cancellation
                     }
                 } else {
                     scope.launch(actionDispatcher) {
@@ -745,16 +943,108 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
                 }
                 addActionLog(rule, topActivity, target, actionResult)
             } else if (isBypassRule) {
+                bypassExecutionToken?.let(bypassExecution::release)
                 BypassDiagnostics.record(FailureReason.ACTION_FAILED, detail = "gkd_action_returned_false")
                 bypassSessionId?.let { sid ->
                     if (BypassActionBudget.attemptsUsed(sid) < bypassMaxAttempts) {
-                        startQueryJob(byForced = true)
+                        scheduleBypassRetry(sid, bypassContext)
                     } else {
                         BypassDetectionSessions.confirmedFailure(sid, FailureReason.ACTION_FAILED)
                     }
                 }
             }
+            // The UI may have changed after the action. Do not spend another
+            // attempt on a cached target from this same pass.
+            if (isBypassRule) break
         }
+        } finally {
+            // Also covers errors while reading candidate geometry or recording
+            // the action, before ownership could be passed to the verifier.
+            queryExecutionToken?.let(bypassExecution::release)
+        }
+    }
+
+    private data class ObservedRootAd(val evidence: BypassObservedAdEvidence?, val node: AccessibilityNodeInfo?,
+                                     val closeCountdownNodes: List<AccessibilityNodeInfo> = emptyList())
+
+    private fun queryAdRule(context: A11yContext, rule: ResolvedRule, root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val top = topActivityFlow.value
+        if (rule.subsItem.id != BYPASS_SPLASH_SUBS_ID ||
+            !BypassAdContextTracker.isMiniProgramAdActivity(top.appId, top.activityId))
+            return context.queryRule(rule, root)
+        val rect = root.casted.boundsInScreen
+        val window = Bounds(rect.left, rect.top, rect.right, rect.bottom)
+        return context.queryRule(rule, root) { target ->
+            val bounds = target.casted.boundsInScreen
+            BypassMiniProgramTargets.allowsTarget(BypassExitClassifier.classifyNode(target),
+                Bounds(bounds.left, bounds.top, bounds.right, bounds.bottom), window,
+                BypassExitClassifier.isMiniProgramNavigationClose(target))
+        }
+    }
+
+    private fun recordAdObservation(root: AccessibilityNodeInfo, activityRule: ActivityRule): ObservedRootAd {
+        val top = activityRule.topActivity
+        val observation = BypassRootAdObserver.inspect(root, top.appId, top.activityId)
+        BypassDetectionSessions.noteRootProbe(top.appId, top.activityId,
+            "visited=${observation.visited} complete=${observation.complete} children=${root.childCount} adLabel=${observation.anyAdLabel} evidence=${observation.evidence?.name ?: "NONE"} rules=${activityRule.currentRules.count { it.subsItem.id == BYPASS_SPLASH_SUBS_ID }}")
+        var evidence = observation.evidence?.let { BypassObservedAdEvidence.valueOf(it.name) }
+        var node = observation.node
+        var candidate = node?.let { BypassExitClassifier.classifyNode(it) }
+        var trust: BypassRuleTrust? = null
+        // The native SDK exit has no text/id. Probe the reviewed full template
+        // even when its action status is exhausted; otherwise a still-visible
+        // ad would be treated as absent and receive a new budget/session.
+        if (evidence == null && top.appId == "com.eg.android.AlipayGphone") {
+            for (rule in activityRule.currentRules) {
+                if (rule.subsItem.id != BYPASS_SPLASH_SUBS_ID) continue
+                val selectors = rule.rule.matches.orEmpty() + rule.rule.anyMatches.orEmpty()
+                if (selectors.size != 1 || BypassMiniProgramLayouts.selectorFingerprint(selectors[0]) != BypassMiniProgramLayouts.ALIPAY_NATIVE_EXIT) continue
+                val policy = BypassRulePolicyResolver.resolve(rule)
+                val found = queryAdRule(a11yContext, rule, root) ?: continue
+                if (!BypassMiniProgramLayouts.admitsNode(top.appId, top.activityId, policy, selectors, found)) continue
+                evidence = BypassObservedAdEvidence.VERIFIED_MINI_AD_LAYOUT
+                node = found
+                candidate = BypassExitCandidateType.CURATED_MINI_EXIT
+                trust = policy.trust
+                break
+            }
+        }
+        if (evidence != null) {
+            val id = BypassDetectionSessions.observeAd(top.appId, top.activityId,
+                BypassStrategyGate.currentStrategyMode(), evidence, trust) ?: return ObservedRootAd(evidence, node, observation.closeCountdownNodes)
+            if (node != null && candidate != null) BypassDetectionSessions.noteObservedCandidate(id, top.appId, top.activityId, candidate, node)
+            BypassDetectionSessions.noteStage(id, "ROOT_SCAN:visited=${observation.visited} complete=${observation.complete} source=FRESH_WINDOW")
+            BypassDetectionSessions.noteStage(id, "CONFIG:master=${storeFlow.value.enableMatch} generic=${storeFlow.value.enableGenericFallback} app=${isBypassAppEnabled(top.appId)} rules=${activityRule.currentRules.count { it.subsItem.id == BYPASS_SPLASH_SUBS_ID }}")
+        } else if (observation.complete) {
+            val previous = BypassDetectionSessions.windowAdEvidence(top.appId, top.activityId)
+            if (previous?.candidateType == BypassExitCandidateType.LOCAL_VISUAL_EXIT) return ObservedRootAd(evidence, node)
+            val absent = if (previous != null && (previous.ruleKey != null || previous.ruleIndex != null)) {
+                !hasSameAdCandidate(root, previous) && !hasProximityAdLabel(root, previous)
+            } else !observation.anyAdLabel
+            if (META.debuggable) Log.d("BypassBlackbox", "clear probe visited=${observation.visited} complete=${observation.complete} label=${observation.anyAdLabel} scoped=${previous != null} absent=$absent")
+            if (!absent) return ObservedRootAd(evidence, node)
+            BypassDetectionSessions.observeClear(top.appId, top.activityId, confirmAbsence = {
+                if (!isInteractive || !BypassBlackbox.sameWindow(top.appId, top.activityId,
+                        topActivityFlow.value.appId, topActivityFlow.value.activityId)) false
+                else getTimeoutActiveWindow()?.let { fresh ->
+                    if (fresh.packageName?.toString() != top.appId || fresh.childCount == 0) false
+                    else {
+                        val stable = BypassRootAdObserver.inspect(fresh, top.appId, top.activityId)
+                        stable.complete && stable.evidence == null &&
+                            if (previous != null && (previous.ruleKey != null || previous.ruleIndex != null))
+                                !hasSameAdCandidate(fresh, previous) && !hasProximityAdLabel(fresh, previous)
+                            else !stable.anyAdLabel
+                    }
+                } ?: false
+            }) {
+                if (BypassBlackbox.sameWindow(top.appId, top.activityId, topActivityFlow.value.appId, topActivityFlow.value.activityId)) {
+                    activityRuleFlow.value.currentRules.filter { it.subsItem.id == BYPASS_SPLASH_SUBS_ID }
+                        .forEach { it.rearmAfterAdExit() }
+                    BypassAdContextTracker.clearWindowEvidence(top.appId, top.activityId)
+                }
+            }
+        }
+        return ObservedRootAd(evidence, node, observation.closeCountdownNodes)
     }
 
     private fun checkOutDate(
@@ -783,15 +1073,18 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
     private fun hasSameAdCandidate(root: AccessibilityNodeInfo, evidence: BypassSessionAdEvidence): Boolean {
         // The window changed after the action; drop the stale node cache so
         // the fresh queries see the new window, not the old nodes.
-        runCatching { a11yContext.clearOldAppNodeCache() }
-        if (evidence.ruleKey == null || evidence.groupKey == null) return false
+        val freshContext = A11yContext(this, interruptable = false).apply { rootCache.value = root }
+        if (evidence.groupKey == null || (evidence.ruleKey == null && evidence.ruleIndex == null)) return false
         val activityRule = synchronized(topActivityFlow) { activityRuleFlow.value }
         val acted = BypassOutcomeVerifier.parseBounds(evidence.bounds)
         // 1) The exact acted rule, in the same region.
         for (rule in activityRule.priorityRules) {
             if (rule.subsItem.id != BYPASS_SPLASH_SUBS_ID) continue
-            if (rule.g.group.key != evidence.groupKey || rule.rule.key != evidence.ruleKey) continue
-            val matched = runCatching { a11yContext.queryRule(rule, root) }.getOrNull() ?: break
+            if (!evidence.belongsToGroup(rule.g.appId, rule.g.group.key) ||
+                !evidence.isActedRule(rule.index, rule.rule.key)) continue
+            val matched = queryAdRule(freshContext, rule, root) ?: break
+            if (BypassAdContextTracker.isMiniProgramAdActivity(activityRule.topActivity.appId, activityRule.topActivity.activityId) &&
+                BypassExitClassifier.isMiniProgramNavigationClose(matched)) continue
             val nodeBounds = matched.casted.boundsInScreen
             val fresh = Bounds(nodeBounds.left, nodeBounds.top, nodeBounds.right, nodeBounds.bottom)
             if (acted == null) return true
@@ -801,10 +1094,13 @@ class A11yRuleEngine(val service: A11yCommonImpl) {
         //    group, still in the same ad region, means the ad is still up.
         for (rule in activityRule.priorityRules) {
             if (rule.subsItem.id != BYPASS_SPLASH_SUBS_ID) continue
-            if (rule.g.group.key != evidence.groupKey || rule.rule.key == evidence.ruleKey) continue
-            val matched = runCatching { a11yContext.queryRule(rule, root) }.getOrNull() ?: continue
+            if (!evidence.belongsToGroup(rule.g.appId, rule.g.group.key) ||
+                evidence.isActedRule(rule.index, rule.rule.key)) continue
+            val matched = queryAdRule(freshContext, rule, root) ?: continue
             val candidateType = runCatching { BypassExitClassifier.classifyNode(matched) }.getOrNull()
             if (!BypassOutcomeVerifier.isSemanticSibling(candidateType)) continue
+            if (BypassAdContextTracker.isMiniProgramAdActivity(activityRule.topActivity.appId, activityRule.topActivity.activityId) &&
+                BypassExitClassifier.isMiniProgramNavigationClose(matched)) continue
             val nodeBounds = matched.casted.boundsInScreen
             val fresh = Bounds(nodeBounds.left, nodeBounds.top, nodeBounds.right, nodeBounds.bottom)
             if (acted == null || BypassOutcomeVerifier.sameAdRegion(acted, fresh)) return true

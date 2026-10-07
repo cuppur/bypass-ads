@@ -117,17 +117,27 @@ object BypassOutcomeVerifier {
         if (freshRoot != null && sessionEvidence != null) {
             val sameAdExists = runCatching {
                 freshSameAdProvider(freshRoot, sessionEvidence)
-            }.getOrDefault(false)
+            }.getOrElse { return BypassOutcome.UNRESOLVED }
             val proximityAdLabel = runCatching {
                 freshProximityAdLabelProvider(freshRoot, sessionEvidence)
-            }.getOrDefault(false)
+            }.getOrElse { return BypassOutcome.UNRESOLVED }
+            val first = decideFromVerify(
+                freshTopPkg = freshTopPkg, packageName = packageName, freshRootAvailable = true,
+                sessionEvidenceAvailable = true, sameAdExists = sameAdExists, proximityAdLabel = proximityAdLabel,
+            )
+            if (first != BypassOutcome.SUCCESS_CONFIRMED) return first
+            // A brief empty/loading tree must not be reported as an exit.
+            delay(150L)
+            val stableRoot = freshWindowProvider() ?: return BypassOutcome.UNRESOLVED
+            val stableTop = stableRoot.packageName?.toString() ?: topFallbackProvider()
+            val stableAd = runCatching { freshSameAdProvider(stableRoot, sessionEvidence) }
+                .getOrElse { return BypassOutcome.UNRESOLVED }
+            val stableLabel = runCatching { freshProximityAdLabelProvider(stableRoot, sessionEvidence) }
+                .getOrElse { return BypassOutcome.UNRESOLVED }
             return decideFromVerify(
-                freshTopPkg = freshTopPkg,
-                packageName = packageName,
-                freshRootAvailable = true,
-                sessionEvidenceAvailable = true,
-                sameAdExists = sameAdExists,
-                proximityAdLabel = proximityAdLabel,
+                freshTopPkg = stableTop, packageName = packageName,
+                freshRootAvailable = true, sessionEvidenceAvailable = true,
+                sameAdExists = stableAd, proximityAdLabel = stableLabel,
             )
         }
         return decideFromVerify(

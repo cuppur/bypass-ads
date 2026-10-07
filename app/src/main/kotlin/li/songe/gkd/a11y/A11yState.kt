@@ -17,6 +17,8 @@ import li.songe.gkd.BYPASS_SPLASH_SUBS_ID
 import li.songe.gkd.app
 import li.songe.gkd.appScope
 import li.songe.gkd.bypass.BypassAdContextTracker
+import li.songe.gkd.bypass.BypassDetectionSessions
+import li.songe.gkd.bypass.BypassRuleTiming
 import li.songe.gkd.data.ActionLog
 import li.songe.gkd.data.ActionResult
 import li.songe.gkd.data.ActivityLog
@@ -207,6 +209,9 @@ fun updateTopActivity(
         appScope.launchTry { DbSet.activityLogDao.deleteKeepLatest() }
     }
     val topActivity = topActivityFlow.value
+    if (idChanged || !oldActivity.sameAs(topActivity.appId, topActivity.activityId)) {
+        BypassDetectionSessions.onWindowChanged(topActivity.appId, topActivity.activityId)
+    }
     val ruleSummary = ruleSummaryFlow.value
     val topChanged = idChanged || oldActivityRule.topActivity != topActivity
     val ruleChanged = oldActivityRule.ruleSummary !== ruleSummary
@@ -228,10 +233,23 @@ fun updateTopActivity(
             BypassAdContextTracker.onTopActivityChanged(appId, activityId, t)
             A11yRuleEngine.instance?.onAppChanged()
         } else {
-            // Activity-level transition (package unchanged, e.g. WeChat
-            // LauncherUI -> AppBrandUI): a fresh window for the same host.
-            BypassAdContextTracker.onTopActivityChanged(appId, activityId, t)
+            // number also changes for repeated STATE_CHANGED in one Activity.
+            // Keep an ad's delay/cooldown/count and startup anchor across those
+            // notifications; actual package/ScreenOn entries reset above.
+            if (!oldActivityRule.topActivity.sameAs(topActivity.appId, topActivity.activityId)) {
+                BypassAdContextTracker.onTopActivityChanged(appId, activityId, t)
+            }
+            var preservedAdState = false
             newActivityRule.currentRules.forEach { r ->
+                if (!BypassRuleTiming.shouldResetOnActivityEvent(
+                        isBypass = r.subsItem.id == BYPASS_SPLASH_SUBS_ID,
+                        previousActivity = oldActivityRule.topActivity.activityId,
+                        currentActivity = topActivity.activityId,
+                        alreadyActive = r in oldActivityRule.currentRules,
+                    )) {
+                    preservedAdState = true
+                    return@forEach
+                }
                 when (r.resetMatchType) {
                     ResetMatchType.App -> {
                         if (r.isFirstMatchApp) {
@@ -246,6 +264,11 @@ fun updateTopActivity(
                             r.resetState(t)
                         }
                     }
+                }
+            }
+            if (preservedAdState) {
+                BypassDetectionSessions.activeId(appId, topActivity.activityId)?.let {
+                    BypassDetectionSessions.noteStage(it, "WINDOW_EVENT:SAME_ACTIVITY action_delay_preserved=true")
                 }
             }
         }

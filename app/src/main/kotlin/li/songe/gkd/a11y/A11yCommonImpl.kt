@@ -8,6 +8,7 @@ import li.songe.gkd.util.AutomatorModeOption
 
 interface A11yCommonImpl {
     suspend fun screenshot(): Bitmap?
+    val screenshotFailureCode: Int? get() = null
     val windowNodeInfo: AccessibilityNodeInfo?
     val windowInfos: List<AccessibilityWindowInfo>
     val scope: CoroutineScope

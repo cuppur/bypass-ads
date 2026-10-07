@@ -5,7 +5,7 @@ Usage:
     python collect_real_ad_samples.py --serial 479901bd [--out samples.json] [--seconds N]
 
 The user simply plays with the phone (open apps, watch ads). The script
-polls the Bypass Ads session table on the device (debug build) and records
+reads the app's finalized metadata traces (formal or debug build) and records
 only the non-content fields per session: package, activity, strategy at
 session start, session id, result, action attempts, final candidate type,
 confirmed latency, and rule origin. At the end it prints a grouped summary
@@ -18,18 +18,13 @@ metadata rows are read.
 
 import argparse
 import json
-import sqlite3
-import subprocess
-import sys
-import tempfile
 import time
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
+from read_ad_blackbox import read_records
 
-PKG = "app.bypassads.debug"
-DB_REL = "cache/storage/emulated/0/Android/data/{pkg}/files/db/gkd.db".format(pkg=PKG)
-TABLE = "bypass_detection_session"
+PKG = "app.bypassads"
 
 SELECT_COLS = (
     "session_id, package_name, activity_name, strategy_mode, result, "
@@ -38,39 +33,13 @@ SELECT_COLS = (
 )
 
 
-def sh(serial: str, *args: str) -> subprocess.CompletedProcess:
-    cmd = ["adb"]
-    if serial:
-        cmd += ["-s", serial]
-    cmd += list(args)
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-
-
-def pull_db(serial: str) -> Path:
-    """Copy the device DB to a temp file via run-as (app-private path)."""
-    sh(serial, "shell", "run-as", PKG, "cp", DB_REL, "/data/local/tmp/bypass-samples.db")
-    tmp = Path(tempfile.gettempdir()) / "bypass-samples.db"
-    sh(serial, "pull", "/data/local/tmp/bypass-samples.db", str(tmp))
-    if not tmp.exists() or tmp.stat().st_size == 0:
-        return Path("")
-    return tmp
-
-
-def read_sessions(serial: str, since_ms: int, limit: int = 500) -> list[dict]:
-    db = pull_db(serial)
-    if not db.exists():
-        return []
-    try:
-        con = sqlite3.connect(str(db))
-        con.row_factory = sqlite3.Row
-        rows = con.execute(
-            f"SELECT {SELECT_COLS} FROM {TABLE} WHERE end_time > ? ORDER BY end_time DESC LIMIT ?",
-            (since_ms, limit),
-        ).fetchall()
-        con.close()
-    finally:
-        db.unlink(missing_ok=True)
-    return [dict(r) for r in rows]
+def read_sessions(serial: str, since_ms: int, limit: int = 200, package: str = PKG) -> list[dict]:
+    # The private WAL may not be readable over USB. Never infer live outcomes
+    # from the standalone main database; the app writes these after finalizing.
+    columns = [c.strip() for c in SELECT_COLS.split(",")]
+    return [{key: r.get(key) for key in columns}
+            for r in read_records(serial, package, limit=limit)
+            if r.get("end_time", 0) > since_ms]
 
 
 def summarize(samples: list[dict]) -> dict:
@@ -87,21 +56,26 @@ def summarize(samples: list[dict]) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serial", default="479901bd", help="adb serial")
+    parser.add_argument("--package", default=PKG, help="Formal or debug app package")
     parser.add_argument("--out", default="real_ad_samples.json", help="output file")
     parser.add_argument("--seconds", type=int, default=0, help="collect for N seconds (0 = until Ctrl+C)")
     args = parser.parse_args()
 
     samples: list[dict] = []
-    last_seen_ms = 0
-    print(f"collecting on {args.serial} ... press Ctrl+C to stop (sessions polled every 5s)")
+    # Host/device clocks can differ. Identify newly finalized sessions by ID,
+    # rather than silently dropping results earlier than the PC's wall clock.
+    seen_ids = {r["session_id"] for r in read_sessions(args.serial, 0, limit=50, package=args.package)}
+    print(f"collecting new finalized traces on {args.serial} ... press Ctrl+C to stop (every 5s)")
     deadline = time.time() + args.seconds if args.seconds else None
     try:
         while True:
             if deadline and time.time() > deadline:
                 break
-            for s in read_sessions(args.serial, last_seen_ms):
+            new_samples = [r for r in read_sessions(args.serial, 0, limit=50, package=args.package)
+                           if r["session_id"] not in seen_ids]
+            for s in new_samples:
                 samples.append(s)
-                last_seen_ms = max(last_seen_ms, s.get("end_time", 0))
+                seen_ids.add(s["session_id"])
             time.sleep(5)
     except KeyboardInterrupt:
         pass

@@ -76,6 +76,18 @@
               ],
               "action": "clickCenter",
               "bypassOrigin": "OVERRIDE"
+            },
+            {
+              "key": 107,
+              "name": "Bypass-Test-Repeated-Window-Delay",
+              "bypassMode": "AGGRESSIVE",
+              "order": -50,
+              "actionDelay": 2200,
+              "matches": [
+                "[vid=\"waiting_exit_control\"][desc=\"关闭弹屏\"][visibleToUser=true]"
+              ],
+              "action": "clickCenter",
+              "bypassOrigin": "OVERRIDE"
             }
           ]
         }
@@ -117,15 +129,30 @@
               "key": 210,
               "name": "Bypass-Alipay-Close-Aggressive",
               "bypassMode": "AGGRESSIVE",
-              "actionDelay": 400,
-              "matches": [
+              "actionDelay": 150,
+              "anyMatches": [
                 "[desc=\"关闭\" || desc=\"关闭弹屏\" || desc=\"關閉\" || desc=\"close\"][visibleToUser=true]",
                 "[text=\"关闭\" || text=\"关闭弹屏\"][visibleToUser=true]",
                 "[vid~=\"(?is).*(ad_close|close_ad|splash_close|close_btn|close_icon)\"][visibleToUser=true]"
               ],
-              "bypassOrigin": "OVERRIDE"
+              "bypassOrigin": "OVERRIDE",
+              "action": "clickCenter",
+              "matchRoot": true
+            },
+            {
+              "key": 211,
+              "name": "Bypass-Alipay-Skip",
+              "anyMatches": [
+                "[(text.length<16 && (text*=\"跳过\" || text*=\"跳 过\" || text*=\"跳過\" || text~=\"(?is).*\\bskip\\b.*\")) || (desc.length<16 && (desc*=\"跳过\" || desc*=\"跳 过\" || desc*=\"跳過\" || desc~=\"(?is).*\\bskip\\b.*\")) || (vid~=\"(?is).*(skip|mJumpBtn).*\" && vid!~=\"(?is).*(video|head|tail).*\")][visibleToUser=true][width<420 && height<260]",
+                "@[clickable=true][visibleToUser=true][width<420 && height<260] > [childCount=0][visibleToUser=true][(text.length<16 && (text*=\"跳过\" || text*=\"跳 过\" || text*=\"跳過\" || text~=\"(?is).*\\bskip\\b.*\")) || (desc.length<16 && (desc*=\"跳过\" || desc*=\"跳 过\" || desc*=\"跳過\" || desc~=\"(?is).*\\bskip\\b.*\")) || (vid~=\"(?is).*(skip|mJumpBtn).*\" && vid!~=\"(?is).*(video|head|tail).*\")]"
+              ],
+              "actionDelay": 0,
+              "bypassOrigin": "OVERRIDE",
+              "matchRoot": true
             }
-          ]
+          ],
+          "forcedTime": 10000,
+          "matchRoot": true
         }
       ]
     },
@@ -137,49 +164,105 @@
           "name": "开屏广告-微信小程序",
           "activityIds": [
             ".plugin.appbrand.ui.AppBrandUI",
-            ".plugin.appbrand.launching.AppBrandLaunchProxyUI"
+            ".plugin.appbrand.launching.AppBrandLaunchProxyUI",
+            ".plugin.appbrand.ui.AppBrandPluginUI"
           ],
           "rules": [
             {
               "key": 200,
               "name": "Bypass-WeChat-Skip",
               "actionDelay": 800,
-              "matches": [
-                "[desc=\"跳过\" || desc=\"跳過\"][visibleToUser=true]"
+              "anyMatches": [
+                "[desc.length<16][desc*=\"跳过\" || desc*=\"跳 过\" || desc*=\"跳過\" || desc~=\"(?is).*\\bskip\\b.*\"][visibleToUser=true][width<420 && height<260]",
+                "[text.length<16][text*=\"跳过\" || text*=\"跳 过\" || text*=\"跳過\" || text~=\"(?is).*\\bskip\\b.*\"][visibleToUser=true][width<420 && height<260]",
+                "[vid~=\"(?is).*skip.*\"][vid!~=\"(?is).*(video|head|tail).*\"][visibleToUser=true][width<420 && height<260]",
+                "@[clickable=true][visibleToUser=true][width<420 && height<260] > [childCount=0][visibleToUser=true][(text.length<16 && (text*=\"跳过\" || text*=\"跳 过\" || text*=\"跳過\" || text~=\"(?is).*\\bskip\\b.*\")) || (desc.length<16 && (desc*=\"跳过\" || desc*=\"跳 过\" || desc*=\"跳過\" || desc~=\"(?is).*\\bskip\\b.*\")) || (vid~=\"(?is).*(skip|mJumpBtn).*\" && vid!~=\"(?is).*(video|head|tail).*\")]"
               ],
-              "bypassOrigin": "OVERRIDE"
+              "bypassOrigin": "OVERRIDE",
+              "action": "clickCenter",
+              "order": -20,
+              "matchRoot": true
             },
             {
               "key": 201,
               "name": "Bypass-WeChat-Close-Aggressive",
               "bypassMode": "AGGRESSIVE",
-              "actionDelay": 500,
-              "matches": [
+              "actionDelay": 800,
+              "anyMatches": [
                 "[desc=\"关闭\" || desc=\"关闭广告\" || desc=\"關閉\" || desc=\"close\" || desc=\"Close\"][visibleToUser=true]",
                 "[text=\"关闭\" || text=\"关闭广告\" || text=\"關閉\" || text=\"Close\"][visibleToUser=true]",
                 "[vid~=\"(?is).*(ad_close|close_ad|splash_close|close_btn|close_icon)\"][visibleToUser=true]"
               ],
-              "bypassOrigin": "OVERRIDE"
+              "bypassOrigin": "OVERRIDE",
+              "action": "clickCenter",
+              "order": -20,
+              "matchRoot": true
             },
             {
               "key": 202,
               "name": "Bypass-WeChat-X-Aggressive",
               "bypassMode": "AGGRESSIVE",
-              "actionDelay": 300,
+              "actionDelay": 150,
               "matches": [
                 "[text=\"X\" || text=\"×\" || text=\"✕\"][visibleToUser=true][width<120 && height<120]"
               ],
-              "bypassOrigin": "OVERRIDE"
+              "bypassOrigin": "OVERRIDE",
+              "matchRoot": true
             },
             {
               "key": 203,
               "name": "Bypass-WeChat-Structural-Crazy",
               "bypassMode": "CRAZY",
-              "actionDelay": 300,
-              "matches": [
+              "actionDelay": 150,
+              "anyMatches": [
                 "[clickable=true][visibleToUser=true][width<160 && height<160][name=\"android.view.View\" || name=\"android.widget.ImageView\"]",
                 "[clickable=false][childCount=0][visibleToUser=true][width<160 && height<160][name=\"android.view.View\" || name=\"android.widget.ImageView\"]"
               ],
+              "bypassOrigin": "OVERRIDE",
+              "matchRoot": true
+            }
+          ],
+          "forcedTime": 10000,
+          "matchRoot": true
+        }
+      ]
+    },
+    {
+      "id": "com.tencent.qqmusic",
+      "name": "QQ音乐",
+      "groups": [
+        {
+          "name": "开屏广告-QQ音乐补强",
+          "order": -15,
+          "forcedTime": 10000,
+          "actionCd": 750,
+          "actionMaximum": 3,
+          "rules": [
+            {
+              "key": 300,
+              "name": "Bypass-QQMusic-Semantic",
+              "anyMatches": [
+                "[clickable=true][visibleToUser=true][width<420 && height<260][(text.length<16 && (text*=\"跳过\" || text*=\"跳 过\" || text*=\"跳過\" || text~=\"(?is).*\\bskip\\b.*\")) || (desc.length<16 && (desc*=\"跳过\" || desc*=\"跳 过\" || desc*=\"跳過\" || desc~=\"(?is).*\\bskip\\b.*\")) || (vid~=\"(?is).*(skip|mJumpBtn).*\" && vid!~=\"(?is).*(video|head|tail).*\")]",
+                "@[clickable=true][visibleToUser=true][width<420 && height<260] > [childCount=0][visibleToUser=true][(text.length<16 && (text*=\"跳过\" || text*=\"跳 过\" || text*=\"跳過\" || text~=\"(?is).*\\bskip\\b.*\")) || (desc.length<16 && (desc*=\"跳过\" || desc*=\"跳 过\" || desc*=\"跳過\" || desc~=\"(?is).*\\bskip\\b.*\")) || (vid~=\"(?is).*(skip|mJumpBtn).*\" && vid!~=\"(?is).*(video|head|tail).*\")]"
+              ],
+              "bypassOrigin": "OVERRIDE"
+            },
+            {
+              "key": 301,
+              "name": "Bypass-QQMusic-Gesture",
+              "matches": [
+                "[clickable=false][childCount=0][visibleToUser=true][width<420 && height<260][(text.length<16 && (text*=\"跳过\" || text*=\"跳 过\" || text*=\"跳過\" || text~=\"(?is).*\\bskip\\b.*\")) || (desc.length<16 && (desc*=\"跳过\" || desc*=\"跳 过\" || desc*=\"跳過\" || desc~=\"(?is).*\\bskip\\b.*\")) || (vid~=\"(?is).*(skip|mJumpBtn).*\" && vid!~=\"(?is).*(video|head|tail).*\")]"
+              ],
+              "action": "clickCenter",
+              "bypassOrigin": "OVERRIDE"
+            },
+            {
+              "key": 302,
+              "name": "Bypass-QQMusic-AdClose",
+              "matches": [
+                "[vid~=\"(?is).*(ad_?close|splash_?close|close_?ad).*\"][visibleToUser=true][width<420 && height<260]"
+              ],
+              "bypassMode": "AGGRESSIVE",
               "bypassOrigin": "OVERRIDE"
             }
           ]

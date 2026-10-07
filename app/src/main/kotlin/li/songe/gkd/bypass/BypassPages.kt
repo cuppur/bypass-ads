@@ -54,6 +54,7 @@ import li.songe.gkd.BYPASS_SPLASH_SUBS_ID
 import li.songe.gkd.MainActivity
 import li.songe.gkd.META
 import li.songe.gkd.a11y.topActivityFlow
+import li.songe.gkd.store.storeFlow
 import li.songe.gkd.service.HttpService
 import li.songe.gkd.ui.A11YScopeAppListRoute
 import li.songe.gkd.ui.A11yEventLogRoute
@@ -71,6 +72,7 @@ import li.songe.gkd.ui.SubsCategoryRoute
 import li.songe.gkd.ui.SubsGlobalGroupListRoute
 import li.songe.gkd.util.BackupUtils
 import li.songe.gkd.util.appIconMapFlow
+import li.songe.gkd.util.appInfoMapFlow
 import li.songe.gkd.util.requestAppIcon
 import li.songe.gkd.util.saveFileToDownloads
 import li.songe.gkd.util.shareFile
@@ -160,7 +162,9 @@ fun BypassHomePage(
                 },
                 accessibility.status == BypassAccessibilityStatus.ENABLED,
                 onCheckedChange = { enabled ->
-                    if (enabled && accessibility.status == BypassAccessibilityStatus.RECOVERING) {
+                    if (enabled && accessibility.status == BypassAccessibilityStatus.RECOVERING &&
+                        (accessibility.hasWriteSecureSettings || accessibility.hasShizuku)
+                    ) {
                         engine.requestServiceRecovery()
                     } else {
                         setAccessibilityEnabled(enabled)
@@ -378,98 +382,130 @@ fun BypassAppDetailPage(engine: BypassEngine, packageName: String, onBack: () ->
 }
 
 @Composable
-fun BypassRecordsPage(
-    engine: BypassEngine,
-    onOpenFailure: (String) -> Unit,
-) {
+fun BypassRecordsPage(engine: BypassEngine, onOpenFailure: (String) -> Unit) {
     val sessions by engine.sessionRecords.collectAsState()
     val stats by engine.productStats.collectAsState()
+    val unsuccessful by engine.unsuccessfulApps.collectAsState()
+    val apps by appInfoMapFlow.collectAsState()
     val scope = rememberCoroutineScope()
     var filter by rememberSaveable { mutableStateOf("全部") }
+    var packageFilter by rememberSaveable { mutableStateOf<String?>(null) }
+    var showAllApps by rememberSaveable { mutableStateOf(false) }
+    var reportDialog by rememberSaveable { mutableStateOf(false) }
+    var reportSearch by rememberSaveable { mutableStateOf("") }
+    var reportPackage by rememberSaveable { mutableStateOf<String?>(null) }
+    var reporting by remember { mutableStateOf(false) }
+    var reportError by remember { mutableStateOf<String?>(null) }
+    val records = BypassRecordPresentation.filter(sessions, filter, packageFilter)
     val listState = rememberLazyListState()
-    val records = when (filter) {
-        "已跳过" -> sessions.filter { it.isSuccess }
-        "未跳过" -> sessions.filter { !it.isSuccess && it.result != BypassSessionResult.OPEN }
-        else -> sessions.filter { it.result != BypassSessionResult.OPEN }
-    }
 
+    if (reportDialog) AlertDialog(
+        onDismissRequest = { if (!reporting) reportDialog = false },
+        title = { Text("记一次漏跳") },
+        text = {
+            Column {
+                BypassMutedText("刚看到广告却没有记录时，选择广告所在的 App。小程序请选择微信或支付宝。这次补记会列入未成功统计，结果标为待确认。", 12)
+                OutlinedTextField(reportSearch, { reportSearch = it }, label = { Text("搜索 App 名称或包名") }, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(8.dp))
+                val knownPackages = (listOf("com.eg.android.AlipayGphone", "com.tencent.mm", "com.tencent.qqmusic") +
+                    sessions.map { it.packageName } + apps.keys).distinct()
+                val choices = knownPackages.filter {
+                    reportSearch.isBlank() || it.contains(reportSearch, true) || apps[it]?.name.orEmpty().contains(reportSearch, true)
+                }
+                LazyColumn(Modifier.height(230.dp)) {
+                    items(choices, key = { it }) { pkg ->
+                        Row(Modifier.fillMaxWidth().clickable { reportPackage = pkg }.padding(vertical = 10.dp)) {
+                            Text(if (reportPackage == pkg) "●  " else "○  ", color = BypassPalette.Accent)
+                            Column {
+                                Text(apps[pkg]?.name ?: when (pkg) {
+                                    "com.eg.android.AlipayGphone" -> "支付宝"
+                                    "com.tencent.mm" -> "微信"
+                                    "com.tencent.qqmusic" -> "QQ音乐"
+                                    else -> pkg
+                                }, fontSize = 14.sp)
+                                BypassMutedText(pkg, 11)
+                            }
+                        }
+                    }
+                }
+                reportError?.let { BypassMutedText(it, 12) }
+            }
+        },
+        confirmButton = { TextButton(enabled = reportPackage != null && !reporting, onClick = {
+            val pkg = reportPackage ?: return@TextButton
+            reporting = true
+            scope.launch {
+                runCatching { engine.reportMissedAd(pkg) }.onSuccess {
+                    reportDialog = false
+                    onOpenFailure(it)
+                }.onFailure { reportError = "记录失败：${it.message ?: "未知错误"}" }
+                reporting = false
+            }
+        }) { Text(if (reporting) "正在记录" else "记录一次") } },
+        dismissButton = { TextButton(onClick = { reportDialog = false }, enabled = !reporting) { Text("取消") } },
+    )
     Column(Modifier.fillMaxSize()) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             BypassMetric("今天跳过", stats.todaySkips.toString(), Modifier.weight(1f))
             BypassMetric("本周跳过", stats.weekSkips.toString(), Modifier.weight(1f))
-            BypassMetric("总跳过", stats.totalSkips.toString(), Modifier.weight(1f))
-        }
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            BypassMetric(
-                "平均响应",
-                stats.averageResponseMs?.let { "$it ms" } ?: "--",
-                Modifier.weight(1f),
-            )
-            BypassMetric("记录", sessions.size.toString(), Modifier.weight(1f))
-            Spacer(Modifier.weight(1f))
-        }
-        Spacer(Modifier.height(14.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("全部", "已跳过", "未跳过").forEach { label ->
-                FilterChip(
-                    selected = filter == label,
-                    onClick = { filter = label },
-                    label = { Text(label) },
-                )
-            }
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            TextButton(onClick = { scope.launch { engine.clearRecentActions() } }) {
-                Text("清除记录")
-            }
+            BypassMetric("未成功", unsuccessful.sumOf { it.total }.toString(), Modifier.weight(1f))
         }
         Spacer(Modifier.height(10.dp))
-        if (records.isEmpty()) {
-            BypassSectionCard("记录") {
-                BypassMutedText("暂无广告会话记录。统计只计算“结果已确认成功”的会话。", 13)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("全部", "已跳过", "未成功", "待诊断").forEach { label ->
+                FilterChip(selected = filter == label, onClick = { filter = label }, label = { Text(label, fontSize = 12.sp) })
             }
-        } else {
-            LazyColumn(Modifier.weight(1f), state = listState) {
-                items(records, key = { it.id }) { record ->
-                    val failure = record.result == BypassSessionResult.FAILURE_CONFIRMED ||
-                        record.result == BypassSessionResult.UNRESOLVED
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(androidx.compose.ui.graphics.Color.White, RoundedCornerShape(8.dp))
-                            .run {
-                                if (failure) clickable { onOpenFailure(record.id) } else this
-                            }
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                "${formatBypassClock(record.time)}  ${record.packageName}",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = BypassPalette.Ink,
-                            )
-                            val meta = buildString {
-                                append(record.label)
-                                if (record.isSuccess && record.confirmedLatencyMs > 0) {
-                                    append(" · ").append(record.confirmedLatencyMs).append(" ms")
-                                }
-                                append(" · 策略 ").append(record.strategyMode.label)
-                                if (record.actionAttempts > 0) append(" · ").append(record.actionAttempts).append(" 次动作")
-                                record.candidateType?.let { append(" · 出口 ").append(it.name) }
-                            }
-                            BypassMutedText(meta, 12)
-                        }
-                        Text(
-                            record.label,
-                            fontSize = 12.sp,
-                            color = if (record.isSuccess) BypassPalette.Accent else BypassPalette.Muted,
-                        )
-                    }
-                    Spacer(Modifier.height(8.dp))
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            TextButton(onClick = { reportDialog = true; reportError = null }) { Text("记一次漏跳") }
+            TextButton(onClick = { scope.launch { engine.clearRecentActions() } }) { Text("清除记录") }
+        }
+        LazyColumn(Modifier.weight(1f), state = listState) {
+            item {
+                BypassSectionCard("广告黑匣子") {
+                    BypassMutedText("一次广告一条记录，包含识别、规则、执行和复查结果。保留最近 7 天，最多 2000 条；下方显示最新 500 条。总计已跳过 ${stats.totalSkips} 次。", 12)
                 }
+                Spacer(Modifier.height(10.dp))
+            }
+            if (unsuccessful.isNotEmpty()) item {
+                BypassSectionCard("未成功跳过的 App") {
+                    BypassMutedText("按保留范围内全部记录统计。已确认失败与结果待确认分别列出；点 App 可筛选。", 12)
+                    (if (showAllApps) unsuccessful else unsuccessful.take(5)).forEach { entry ->
+                        Row(Modifier.fillMaxWidth().clickable {
+                            packageFilter = entry.packageName; filter = "未成功"
+                        }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(apps[entry.packageName]?.name ?: entry.packageName, fontSize = 14.sp, color = BypassPalette.Ink)
+                                BypassMutedText("确认失败 ${entry.confirmedFailures} · 待确认 ${entry.unconfirmed}", 11)
+                            }
+                            Text("${entry.total} 次", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        }
+                    }
+                    if (unsuccessful.size > 5) TextButton(onClick = { showAllApps = !showAllApps }) {
+                        Text(if (showAllApps) "收起" else "显示全部 ${unsuccessful.size} 个 App")
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+            }
+            packageFilter?.let { pkg -> item {
+                TextButton(onClick = { packageFilter = null }) { Text("${apps[pkg]?.name ?: pkg} · 清除 App 筛选") }
+            } }
+            if (records.isEmpty()) item {
+                BypassSectionCard("记录") { BypassMutedText("暂无符合筛选条件的记录。完全未捕获的广告可用“记一次漏跳”补记。", 13) }
+            }
+            items(records, key = { it.id }) { record ->
+                Column(Modifier.fillMaxWidth().background(androidx.compose.ui.graphics.Color.White, RoundedCornerShape(8.dp))
+                    .clickable { onOpenFailure(record.id) }.padding(16.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(apps[record.packageName]?.name ?: record.packageName, modifier = Modifier.weight(1f),
+                            fontSize = 14.sp, fontWeight = FontWeight.Medium, color = BypassPalette.Ink)
+                        Text(record.label, fontSize = 12.sp, color = if (record.isSuccess) BypassPalette.Accent else BypassPalette.Muted)
+                    }
+                    BypassMutedText("${formatBypassTime(record.time)} · ${record.strategyMode.label} · ${record.actionAttempts} 次动作", 12)
+                    Spacer(Modifier.height(4.dp))
+                    BypassMutedText(BypassRecordPresentation.summary(record), 12, 18)
+                }
+                Spacer(Modifier.height(8.dp))
             }
         }
     }
@@ -477,47 +513,80 @@ fun BypassRecordsPage(
 
 @Composable
 fun BypassFailureDetailPage(
-    engine: BypassEngine,
-    eventId: String,
-    onBack: () -> Unit,
-    onTeach: (BypassFailureRecord) -> Unit,
+    engine: BypassEngine, eventId: String, onBack: () -> Unit, onTeach: (BypassFailureRecord) -> Unit,
 ) {
-    val failures by engine.failureRecords.collectAsState()
+    val sessions by engine.sessionRecords.collectAsState()
     val metadata by engine.ruleMetadata.collectAsState()
     val protection by engine.runtimeProtection.collectAsState()
     val masterEnabled by engine.masterEnabled.collectAsState()
-    val event = failures.firstOrNull { it.id == eventId }
-    val currentStrategy by engine.strategyMode.collectAsState()
+    val apps by appInfoMapFlow.collectAsState()
+    val record = sessions.firstOrNull { it.id == eventId }
+    val scope = rememberCoroutineScope()
+    val activity = LocalContext.current as? MainActivity
     var result by rememberSaveable { mutableStateOf<String?>(null) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        BypassBackButton("未跳过原因", onBack)
+        BypassBackButton("广告记录详情", onBack)
         Spacer(Modifier.height(12.dp))
-        if (event == null) {
-            BypassSectionCard("记录已失效") {
-                BypassMutedText("这条记录已不在本机最近诊断范围内。", 13)
-            }
+        if (record == null) {
+            BypassSectionCard("记录暂不可用") { BypassMutedText("正在读取记录；超出最新 500 条范围或已被清除的记录无法在此打开。", 13) }
             return@Column
         }
-        BypassSectionCard("为什么没有跳过？") {
-            Text(event.explanation, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = BypassPalette.Ink)
+        BypassSectionCard(record.label) {
+            Text(BypassRecordPresentation.summary(record), fontSize = 16.sp, fontWeight = FontWeight.Medium, color = BypassPalette.Ink)
             Spacer(Modifier.height(10.dp))
-            BypassMutedText("App\n${event.packageName}\n\n页面\n${event.activityName ?: "Activity 未知"}\n\n识别\n${event.reason.name}\n\n策略（发生时）\n${event.strategyMode?.label ?: currentStrategy.label}\n\n操作\n${event.detail.ifBlank { "没有额外信息" }}", 12, 19)
+            BypassMutedText("${apps[record.packageName]?.name ?: record.packageName}\n${record.packageName}\n\n时间  ${formatBypassTime(record.time)}\n页面  ${record.activityName ?: "未捕获"}\n策略  ${record.strategyMode.label}\n出口  ${BypassRecordPresentation.candidate(record.candidateType)}\n来源  ${BypassRecordPresentation.origin(record.ruleOrigin)}\n动作  ${record.actionAttempts} 次\n验证耗时  ${record.confirmedLatencyMs.takeIf { it > 0 }?.let { "$it ms" } ?: "未记录"}", 12, 19)
         }
         Spacer(Modifier.height(14.dp))
-        BypassSectionCard("处理") {
-            BypassModeButton("重新测试", false, onClick = {
-                engine.retryCurrentMatch()
-                result = "已请求重新检查当前界面"
+        BypassSectionCard("识别与执行依据") {
+            BypassMutedText("${if (record.candidateSeen) "已捕获出口候选" else "未捕获出口候选"}\n匹配规则  ${record.matchedRules.size} 条\n动作  ${record.actions.joinToString(" → ") { BypassRecordPresentation.action(it) }.ifBlank { "未发出" }}", 12)
+            record.matchedRules.forEach { BypassMutedText(it, 11, 17) }
+            if (record.timeline.isEmpty()) BypassMutedText("这是旧版记录，当时没有保存完整的识别日志。", 12)
+        }
+        Spacer(Modifier.height(14.dp))
+        BypassSectionCard("过程日志") {
+            record.timeline.forEach { raw ->
+                val entry = BypassRecordPresentation.timeline(raw)
+                Text("${entry.elapsed?.let { "$it  " }.orEmpty()}${entry.title}", fontSize = 13.sp, color = BypassPalette.Ink)
+                BypassMutedText(entry.code, 11, 17)
+                Spacer(Modifier.height(8.dp))
+            }
+        }
+        if (record.candidates.isNotEmpty()) {
+            Spacer(Modifier.height(14.dp))
+            BypassSectionCard("关闭控件快照") {
+                BypassMutedText("只记录出口附近的控件信息，不保存页面正文或截图。", 12)
+                record.candidates.forEachIndexed { index, node ->
+                    Spacer(Modifier.height(8.dp))
+                    BypassMutedText("${index + 1}. ${node.className}\n文字  ${node.text ?: "空"}\n描述  ${node.description ?: "空"}\nID  ${node.viewId ?: "空"}\n区域  ${node.bounds}\n可点击  ${node.clickable} · 父级可点击  ${node.parentClickable}", 11, 17)
+                }
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        BypassSectionCard("诊断工具") {
+            BypassModeButton("导出这条记录到下载目录", false, onClick = {
+                scope.launch {
+                    result = runCatching {
+                        val file = withContext(Dispatchers.IO) {
+                            BypassDiagnostics.writeSessionBundle(record, metadata, protection, masterEnabled)
+                        }
+                        if (activity != null) activity.saveFileToDownloads(file)
+                        "已保存 ${file.name} 到下载目录"
+                    }.getOrElse { "导出失败：${it.message ?: "未知错误"}" }
+                }
             })
-            Spacer(Modifier.height(8.dp))
-            BypassModeButton("教 Bypass Ads 跳过", false, onClick = { onTeach(event) })
-            Spacer(Modifier.height(8.dp))
-            BypassModeButton("生成诊断包", false, onClick = {
-                result = runCatching {
-                    val file = BypassDiagnostics.writeLocalBundle(metadata, protection, masterEnabled)
-                    "已保存 ${file.name}"
-                }.getOrElse { "生成失败：${it.message ?: "未知错误"}" }
-            })
+            if (!record.isSuccess) {
+                Spacer(Modifier.height(8.dp))
+                BypassModeButton("重新检查当前页面", false, onClick = {
+                    engine.retryCurrentMatch(); result = "已请求重新检查当前界面"
+                })
+                if (record.candidates.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    BypassModeButton("教 Bypass Ads 跳过", false, onClick = {
+                        onTeach(BypassFailureRecord(record.id, record.time, record.packageName, record.activityName,
+                            record.reason, BypassRecordPresentation.summary(record), record.candidates, record.strategyMode))
+                    })
+                }
+            }
             result?.let { BypassMutedText(it, 12) }
         }
     }
@@ -629,6 +698,7 @@ fun BypassAdvancedSettingsPage(engine: BypassEngine, onBack: () -> Unit) {
 @Composable
 fun BypassSplashStrategyPage(engine: BypassEngine, onBack: () -> Unit) {
     val fallback by engine.genericFallbackEnabled.collectAsState()
+    val visualSettings by storeFlow.collectAsState()
     val strategy by engine.strategyMode.collectAsState()
     val crazyAcknowledged by engine.crazyModeAcknowledged.collectAsState()
     val categories by engine.adCategories.collectAsState()
@@ -677,6 +747,12 @@ fun BypassSplashStrategyPage(engine: BypassEngine, onBack: () -> Unit) {
             BypassMutedText("专用规则未覆盖时，使用受限全局 fallback。模式决定允许哪些候选与动作。", 12)
             Spacer(Modifier.height(8.dp))
             BypassSwitchRow("通用开屏识别", "专用规则未覆盖时使用受限全局 fallback。", fallback, engine::setGenericFallbackEnabled)
+            Spacer(Modifier.height(10.dp))
+            BypassSwitchRow("小程序视觉补查", "激进或彻底疯狂模式下，补查无控件的左上角广告出口。", visualSettings.enableMiniProgramVisualSkip, {
+                storeFlow.value = storeFlow.value.copy(enableMiniProgramVisualSkip = it)
+            })
+            Spacer(Modifier.height(6.dp))
+            BypassMutedText("Android 11 及以上可用。文字识别在本机完成，画面不保存；仅检查微信、支付宝小程序左上角，右上角退出区域始终排除。需同时识别出口、广告标识和旁边的倒计时，并在点击前后复查。", 12)
         }
         Spacer(Modifier.height(14.dp))
         BypassSectionCard("安全保护") {

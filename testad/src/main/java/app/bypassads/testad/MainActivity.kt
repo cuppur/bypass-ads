@@ -3,12 +3,17 @@ package app.bypassads.testad
 import android.app.Activity
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowInsets
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -19,6 +24,21 @@ import android.widget.TextView
  * the Bypass Ads APK or its normal user navigation. */
 class MainActivity : Activity() {
     private lateinit var root: FrameLayout
+    private var warmScene = false
+    private var returnedFromBackground = false
+
+    override fun onPause() {
+        super.onPause()
+        if (warmScene) returnedFromBackground = true
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (warmScene && returnedFromBackground) {
+            returnedFromBackground = false
+            showScene("ae")
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,7 +50,7 @@ class MainActivity : Activity() {
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        intent.getStringExtra(EXTRA_SCENARIO)?.takeIf { it in scenarioNames }?.let(::showScene) ?: showPicker()
+        intent.getStringExtra(EXTRA_SCENARIO)?.takeIf { it in scenarioNames }?.let(::showScene)
     }
 
     private fun showPicker() {
@@ -49,14 +69,114 @@ class MainActivity : Activity() {
     }
 
     private fun showScene(mode: String) {
-        val scene = FrameLayout(this).apply { setBackgroundColor(Color.rgb(25, 31, 46)) }
+        warmScene = mode == "ae"
+        val scene = FrameLayout(this).apply {
+            setBackgroundColor(Color.rgb(25, 31, 46))
+            contentDescription = "BypassTestScene:$mode"
+        }
         scene.addView(TextView(this).apply {
-            text = "测试场景 ${mode.uppercase()}: ${scenarioLabel(mode)}"
+            // FLAG_INCLUDE_NOT_IMPORTANT_VIEWS can still expose this caption.
+            // Only the scene's real controls/labels may supply ad semantics.
+            text = "测试场景 ${mode.uppercase()}"
             textSize = 17f
             setTextColor(Color.WHITE)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { setMargins(dp(24), dp(64), 0, 0) })
         when (mode) {
+            "aj", "ak", "al", "am", "ap", "aq" -> {
+                val delay = if (mode == "ap") 12_000L else 0L
+                scene.postDelayed({
+                    if (root.getChildAt(0) === scene) {
+                        scene.addView(VisualAdView(mode), FrameLayout.LayoutParams(-1, -1))
+                    }
+                }, delay)
+            }
+            // A delay longer than the one-second Activity event throttle makes
+            // repeated same-Activity resets deterministic, rather than racing
+            // the real SDK's shorter readiness delay.
+            "ai" -> {
+                addAdLabeled(scene) {
+                    addView(skipTarget(desc = "关闭弹屏", id = R.id.waiting_exit_control) {
+                        showResult(mode)
+                    }, topEndParams())
+                }
+                fun emitWindowEvent() {
+                    scene.postDelayed({
+                        if (root.getChildAt(0) !== scene) return@postDelayed
+                        val manager = getSystemService(android.view.accessibility.AccessibilityManager::class.java)
+                        if (!manager.isEnabled || !hasWindowFocus()) {
+                            emitWindowEvent()
+                            return@postDelayed
+                        }
+                        val event = android.view.accessibility.AccessibilityEvent.obtain(
+                            android.view.accessibility.AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED)
+                        event.packageName = packageName
+                        event.className = MainActivity::class.java.name
+                        event.setSource(scene)
+                        // The system can disable accessibility between the
+                        // check and dispatch while the test harness restores
+                        // services. That teardown race is not an app crash.
+                        try {
+                            root.parent?.requestSendAccessibilityEvent(root, event)
+                        } catch (error: IllegalStateException) {
+                            if (manager.isEnabled) throw error
+                        }
+                        emitWindowEvent()
+                    }, 300L)
+                }
+                emitWindowEvent()
+            }
+            // Countdown events originate from a sibling of the close control,
+            // after startup polling. The gate must see the fresh whole root.
+            "ah" -> {
+                val control = skipTarget(text = "跳过") { showResult(mode) }
+                control.accessibilityDelegate = object : View.AccessibilityDelegate() {
+                    override fun performAccessibilityAction(host: View, action: Int, args: android.os.Bundle?): Boolean {
+                        if (action == android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK) return true
+                        return super.performAccessibilityAction(host, action, args)
+                    }
+                }
+                scene.addView(control, topEndParams())
+            }
+            "ag" -> scene.postDelayed({
+                if (root.getChildAt(0) !== scene) return@postDelayed
+                addAdLabeled(scene) {
+                    addView(skipTarget(text = "关闭") { showResult(mode) }, topEndParams())
+                    val timer = TextView(this@MainActivity).apply {
+                        text = "5秒"
+                        setTextColor(Color.WHITE)
+                        textSize = 14f
+                    }
+                    addView(timer, FrameLayout.LayoutParams(dp(45), dp(36), Gravity.TOP or Gravity.END).apply {
+                        topMargin = dp(120); marginEnd = dp(150)
+                    })
+                    fun tick(n: Int) {
+                        timer.postDelayed({
+                            if (root.getChildAt(0) !== scene) return@postDelayed
+                            timer.text = "$n 秒"
+                            timer.sendAccessibilityEvent(android.view.accessibility.AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
+                            if (n > 0) tick(n - 1)
+                        }, 500L)
+                    }
+                    tick(4)
+                }
+            }, 12_000L)
+            // Late ad in the same Activity, past the old 10-second deadline.
+            "ad", "ae" -> scene.postDelayed({
+                if (root.getChildAt(0) === scene) {
+                    scene.addView(skipTarget(text = "跳过 5") { showResult(mode) }, topEndParams())
+                }
+            }, 12_000L)
+            // Two ads, same Activity and rule. The second starts after exit.
+            "af" -> scene.addView(skipTarget(text = "跳过 5") {
+                scene.removeAllViews()
+                scene.addView(TextView(this).apply { text = "第一条已跳过，等待第二条广告"; setTextColor(Color.WHITE) })
+                scene.postDelayed({
+                    if (root.getChildAt(0) === scene) {
+                        scene.addView(skipTarget(text = "跳过 5") { showResult(mode) }, topEndParams())
+                    }
+                }, 12_000L)
+            }, topEndParams())
             "a" -> scene.addView(skipTarget(text = "跳过广告") { showResult(mode) }, topEndParams())
             "b" -> scene.addView(skipTarget(desc = "跳过") { showResult(mode) }, topEndParams())
             "c" -> scene.addView(skipTarget(id = R.id.splash_skip_control) { showResult(mode) }, topEndParams())
@@ -67,7 +187,22 @@ class MainActivity : Activity() {
             "h", "i" -> scene.addView(skipTarget(text = "跳过") { showUnexpectedAction(mode) }, topEndParams())
             "j" -> scene.addView(skipTarget(desc = "跳过") { showUnexpectedAction(mode) }, topEndParams())
             "k" -> addClickableParent(scene, mode)
-            "l" -> scene.addView(skipTarget(text = "跳过") { /* Action succeeds but the ad stays visible. */ }, topEndParams())
+            "l" -> {
+                scene.addView(skipTarget(text = "跳过") { /* Accepted click, ad remains. */ }, topEndParams())
+                val timer = TextView(this).apply { text = "25 秒"; setTextColor(Color.WHITE) }
+                scene.addView(timer, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply {
+                    topMargin = dp(120); marginStart = dp(30)
+                })
+                fun tick(remaining: Int) {
+                    timer.postDelayed({
+                        if (root.getChildAt(0) !== scene) return@postDelayed
+                        timer.text = "$remaining 秒"
+                        timer.sendAccessibilityEvent(android.view.accessibility.AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
+                        if (remaining > 0) tick(remaining - 1)
+                    }, 1000L)
+                }
+                tick(24)
+            }
             "m" -> addDelayedClickableTarget(scene, mode)
             "n" -> scene.addView(skipTarget(text = "跳过", clickable = false).apply {
                 // The visual target intentionally has no accessibility node.
@@ -236,6 +371,59 @@ class MainActivity : Activity() {
         gravity = Gravity.CENTER
         setTextColor(Color.rgb(36, 112, 69))
     })
+
+    /** Drawn pixels only: no virtual text nodes, descriptions or click action. */
+    private inner class VisualAdView(private val mode: String) : View(this@MainActivity) {
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val created = android.os.SystemClock.elapsedRealtime()
+        private val target = RectF()
+        private val image = if (mode == "aq") BitmapFactory.decodeFile(java.io.File(getExternalFilesDir(null), "visual-calibration.png").path) else null
+        init { importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS }
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            canvas.drawColor(Color.rgb(190, 30, 35))
+            val label = if (mode in setOf("ak", "al")) "关闭" else "跳过"
+            val right = mode == "am"
+            val count = (6 - (android.os.SystemClock.elapsedRealtime() - created) / 1_000L).coerceAtLeast(0)
+            val x = if (right) width * 0.64f else width * 0.025f
+            // Android 15+ enforces edge-to-edge for this target SDK. Read the
+            // real status/cutout inset, including HyperOS' notification capsule.
+            val insets = rootWindowInsets
+            val systemTop = if (android.os.Build.VERSION.SDK_INT >= 30) {
+                insets?.getInsets(WindowInsets.Type.statusBars() or WindowInsets.Type.displayCutout())?.top ?: 0
+            } else {
+                @Suppress("DEPRECATION")
+                insets?.systemWindowInsetTop ?: 0
+            }
+            val y = (systemTop + dp(24)).toFloat()
+            val font = width * 0.041f
+            if (image != null) {
+                val imageWidth = width * 0.45f
+                val imageHeight = image.height * imageWidth / image.width
+                canvas.drawBitmap(image, null, RectF(0f, y, imageWidth, y + imageHeight), paint)
+                target.set(width * 0.19f, y + width * 0.026f, width * 0.31f, y + width * 0.106f)
+            } else {
+                paint.color = Color.rgb(135, 30, 35)
+                val pill = RectF(x, y, x + width * 0.29f, y + font * 1.65f)
+                canvas.drawRoundRect(pill, font * 0.8f, font * 0.8f, paint)
+                paint.color = Color.WHITE
+                paint.textSize = font
+                val baseline = y + font * 1.16f
+                if (mode != "ak") canvas.drawText("广告", x + font * 0.40f, baseline, paint)
+                canvas.drawText(label, x + font * 4.10f, baseline, paint)
+                canvas.drawText("${count}秒", x + width * 0.32f, baseline, paint)
+                target.set(x + font * 3.8f, y, x + width * 0.29f, y + font * 1.65f)
+            }
+            if (count > 0 || image != null) postInvalidateDelayed(250L)
+        }
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            if (event.action == MotionEvent.ACTION_UP && target.contains(event.x, event.y)) {
+                if (mode in setOf("ak", "am")) showUnexpectedAction(mode) else showResult(mode)
+            }
+            return true
+        }
+        override fun onDetachedFromWindow() { image?.recycle(); super.onDetachedFromWindow() }
+    }
     private fun showUnexpectedAction(mode: String) = setScene(TextView(this).apply {
         text = "错误：发生了不应执行的动作 (${mode.uppercase()})"
         textSize = 20f
@@ -275,6 +463,18 @@ class MainActivity : Activity() {
         "aa" -> "AA 可信专用关闭（保守也可点）"
         "ab" -> "AB 教学节点固定场景"
         "ac" -> "AC 负例：远处 banner 广告 + 普通小 ImageView（疯狂也禁止）"
+        "ah" -> "AH 控件点击假成功，实际手势才能关闭"
+        "ai" -> "AI 等待期间反复通知同一窗口，等待不得重新计时"
+        "ag" -> "AG 晚出现广告：倒计时更新来自关闭按钮旁边"
+        "ad" -> "AD 进入 12 秒后出现的广告"
+        "ae" -> "AE 后台常驻、返回 12 秒后再次弹广告"
+        "af" -> "AF 同一页面连续两条广告"
+        "aj" -> "AJ Canvas 开屏跳过，无无障碍文字"
+        "ak" -> "AK 普通关闭及计时，无广告证据，不得点击"
+        "al" -> "AL Canvas 广告关闭，旁边独立计时"
+        "am" -> "AM 右上角退出区域，不得点击"
+        "ap" -> "AP Canvas 广告进入 12 秒后出现"
+        "aq" -> "AQ 临时真实广告按钮画面校准"
         else -> mode
     }
 
@@ -282,7 +482,8 @@ class MainActivity : Activity() {
         const val EXTRA_SCENARIO = "scenario"
         private val scenarioNames = setOf(
             "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o",
-            "p", "q", "r", "s", "t", "u", "w", "x", "y", "z", "aa", "ab", "ac",
+            "p", "q", "r", "s", "t", "u", "w", "x", "y", "z", "aa", "ab", "ac", "ad", "ae", "af", "ag", "ah", "ai",
+            "aj", "ak", "al", "am", "ap", "aq",
         )
     }
 }

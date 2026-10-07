@@ -31,8 +31,8 @@ and retained GKD pages share `MainViewModel.backStack`.
 | Application protection control | Ads -> Application control | Rule coverage list is informational navigation | Bypass subscription `AppConfig` |
 | Rule bundle and subscription operations | Ads -> Rules & subscriptions | Ads package summary | `GkdBypassEngine` bundle import/restore and retained subscription tools |
 | Advanced rule management | Ads -> Rules & subscriptions -> Advanced rule management | None | Shared detail stack and retained GKD rule routes |
-| Records clearing | Records -> Clear records | None | Bypass action history and in-memory failure diagnostics |
-| Failure diagnosis and teaching | Records -> Suspected failure -> Failure detail | None | Redacted `BypassDiagnostics` events and existing GKD matcher |
+| Records clearing | Records -> Clear records | None | Persistent Bypass ad sessions and blackbox events |
+| Failure diagnosis and teaching | Records -> Ad record detail | None | Redacted blackbox reasons, confirmed outcomes and existing GKD matcher |
 | Accessibility scope | Settings -> Advanced tools -> Accessibility scope | None | Retained `A11YScopeAppListRoute` |
 | Prompt settings | Settings -> Prompt settings | None | `toastWhenClick` |
 | Backup | Settings -> Backup and restore | None | `BackupUtils` |

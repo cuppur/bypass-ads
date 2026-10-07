@@ -3,6 +3,8 @@ package li.songe.gkd.bypass
 import android.os.Build
 import kotlinx.coroutines.flow.MutableStateFlow
 import li.songe.gkd.META
+import li.songe.gkd.data.BypassDetectionSession
+import li.songe.gkd.util.dbFolder
 import li.songe.gkd.app
 import li.songe.gkd.a11y.topActivityFlow
 import org.json.JSONArray
@@ -26,6 +28,9 @@ enum class FailureReason {
     ACCESSIBILITY_NODE_MISSING,
     EVENT_MISSED,
     MISCLICK_SUSPECTED,
+    VISUAL_CAPTURE_UNAVAILABLE,
+    VISUAL_RECOGNITION_UNAVAILABLE,
+    VISUAL_TARGET_STALE,
     UNKNOWN,
 }
 
@@ -71,6 +76,64 @@ object BypassDiagnostics {
 
     fun clear() {
         _events.value = emptyList()
+        File(dbFolder.parentFile, "blackbox").listFiles().orEmpty().filter {
+            it.isFile && (Regex("session-[0-9]+-[A-Fa-f0-9-]+\\.json").matches(it.name) ||
+                Regex("\\.session-[0-9]+-[A-Fa-f0-9-]+\\.json\\.tmp").matches(it.name))
+        }.forEach { it.delete() }
+    }
+
+    /** Local metadata mirror for USB diagnosis of non-debuggable release builds. */
+    fun writeFinalSessionTrace(session: BypassDetectionSession) {
+        if (session.sessionResult == BypassSessionResult.OPEN) return
+        val record = session.toSessionRecord()
+        val row = JSONObject().put("session_id", session.sessionId).put("package_name", session.packageName)
+            .put("activity_name", session.activityName).put("start_time", session.startTime).put("end_time", session.endTime)
+            .put("result", session.result).put("final_failure_reason", session.finalFailureReason)
+            .put("strategy_mode", session.strategyMode).put("candidate_type", session.candidateType)
+            .put("action_attempts", session.actionAttempts).put("confirmed_latency_ms", session.confirmedLatencyMs)
+            .put("rule_origin", session.ruleOrigin).put("timeline", JSONArray(record.timeline))
+            .put("matched_rules", JSONArray(record.matchedRules))
+        val shapes = JSONArray()
+        record.candidates.forEach { node ->
+            shapes.put(JSONObject().put("className", node.className).put("bounds", node.bounds)
+                .put("clickable", node.clickable).put("parentClickable", node.parentClickable))
+        }
+        row.put("control_shapes", shapes)
+        val directory = File(dbFolder.parentFile, "blackbox").apply { mkdirs() }
+        val name = "session-${session.startTime}-${session.sessionId}.json"
+        val pending = File(directory, ".$name.tmp")
+        pending.writeText(row.toString())
+        val destination = File(directory, name)
+        check(pending.renameTo(destination)) { "Unable to store blackbox trace" }
+        val cutoff = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000
+        val files = directory.listFiles().orEmpty().filter { it.name.startsWith("session-") && it.extension == "json" }
+        files.filter { it.lastModified() < cutoff }.forEach { it.delete() }
+        files.filter { it.exists() }.sortedByDescending { it.lastModified() }.drop(2_000).forEach { it.delete() }
+    }
+
+    fun writeSessionBundle(
+        record: BypassSessionRecord, metadata: BypassRuleMetadata,
+        protection: BypassRuntimeProtection, masterEnabled: Boolean,
+    ): File {
+        val current = writeLocalBundle(metadata, protection, masterEnabled)
+        val root = JSONObject(current.readText())
+        val row = JSONObject().put("id", record.id).put("time", record.time)
+            .put("packageName", record.packageName).put("activity", record.activityName)
+            .put("result", record.result.name).put("reason", record.reason.name)
+            .put("strategyAtObservation", record.strategyMode.name).put("ruleOrigin", record.ruleOrigin)
+            .put("candidateType", record.candidateType?.name).put("actionAttempts", record.actionAttempts)
+            .put("confirmedLatencyMs", record.confirmedLatencyMs).put("hasAdEvidence", record.hasAdEvidence)
+            .put("matchedRules", JSONArray(record.matchedRules)).put("actions", JSONArray(record.actions))
+            .put("timeline", JSONArray(record.timeline))
+        val candidates = JSONArray()
+        record.candidates.forEach { c ->
+            candidates.put(JSONObject().put("text", c.text).put("description", c.description).put("viewId", c.viewId)
+                .put("className", c.className).put("bounds", c.bounds).put("clickable", c.clickable)
+                .put("parentClickable", c.parentClickable))
+        }
+        root.put("adSession", row.put("candidates", candidates))
+        current.writeText(root.toString(2))
+        return current
     }
 
     fun writeLocalBundle(

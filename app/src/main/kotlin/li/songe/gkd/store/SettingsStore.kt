@@ -16,6 +16,8 @@ data class SettingsStore(
     val enableShizuku: Boolean = false,
     val enableMatch: Boolean = true,
     val enableGenericFallback: Boolean = true,
+    /** Android 11+: local OCR of the mini-program's top-left ad exit only. */
+    val enableMiniProgramVisualSkip: Boolean = true,
     /** Bypass Ads splash exit strategy. 0=CONSERVATIVE 1=AGGRESSIVE 2=CRAZY. */
     val bypassAdStrategyMode: Int = 0,
     /** True once the user has acknowledged the CRAZY-mode confirmation. */

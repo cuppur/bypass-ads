@@ -81,7 +81,7 @@ sealed class ActionPerformer(val action: String) {
                     )
                     A11yService.instance?.dispatchGesture(
                         gestureDescription.build(), null, null
-                    ) != null
+                    ) == true
                 },
                 position = x to y
             )
@@ -154,7 +154,7 @@ sealed class ActionPerformer(val action: String) {
                     )
                     (A11yService.instance?.dispatchGesture(
                         gestureDescription.build(), null, null
-                    ) != null).apply {
+                    ) == true).apply {
                         if (this) {
                             delay(LONG_DURATION)
                         }
@@ -262,7 +262,7 @@ sealed class ActionPerformer(val action: String) {
                     action = action,
                     result = (A11yService.instance?.dispatchGesture(
                         gestureDescription.build(), null, null
-                    ) != null).apply {
+                    ) == true).apply {
                         if (this) {
                             delay(swipeArg.duration)
                         }

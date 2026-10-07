@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [codex/gkd-migration-repaired, main]
+    branches: [main]
   pull_request:
 
 jobs:
@@ -80,6 +80,12 @@ jobs:
 
       - name: Assemble Release (R8, unsigned - no repo secrets)
         run: ./gradlew :app:assembleGkdRelease --console=plain
+
+      - name: Verify bundled ML Kit reflection constructors
+        run: >-
+          python tools/check_mlkit_release.py
+          --manifest app/build/intermediates/merged_manifests/gkdRelease/processGkdReleaseManifest/AndroidManifest.xml
+          --mapping app/build/outputs/mapping/gkdRelease/mapping.txt
 
       - name: Assemble FullTools APK
         run: ./gradlew :app:assembleFulltoolsDebug --console=plain

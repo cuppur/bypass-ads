@@ -10,6 +10,7 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 import li.songe.gkd.bypass.BypassSessionResult
+import li.songe.gkd.bypass.BypassUnsuccessfulAppStats
 
 /**
  * One ad session: a bounded matcher window for one possible ad. Multiple
@@ -94,11 +95,34 @@ data class BypassDetectionSession(
         @Query(
             """
             SELECT * FROM bypass_detection_session
-            ORDER BY end_time DESC
+            ORDER BY CASE WHEN end_time = 0 THEN start_time ELSE end_time END DESC
             LIMIT 500
             """
         )
         fun queryAll(): Flow<List<BypassDetectionSession>>
+
+        @Query("""
+            SELECT package_name AS packageName,
+                SUM(CASE WHEN result IN ('FAILURE_CONFIRMED','MISCLICK_SUSPECTED') THEN 1 ELSE 0 END) AS confirmedFailures,
+                SUM(CASE WHEN result = 'UNRESOLVED' THEN 1 ELSE 0 END) AS unconfirmed,
+                MAX(end_time) AS lastTime
+            FROM bypass_detection_session
+            WHERE result IN ('FAILURE_CONFIRMED','MISCLICK_SUSPECTED','UNRESOLVED')
+                AND end_time >= :cutoff
+                AND (diagnostic_timeline LIKE '%AD_EVIDENCE:%' OR (candidate_seen = 1 AND action_attempts > 0))
+            GROUP BY package_name
+            ORDER BY confirmedFailures + unconfirmed DESC, lastTime DESC
+        """)
+        fun queryUnsuccessfulByApp(cutoff: Long): Flow<List<BypassUnsuccessfulAppStats>>
+
+        @Query("""
+            DELETE FROM bypass_detection_session
+            WHERE session_id NOT IN (
+                SELECT session_id FROM bypass_detection_session
+                ORDER BY CASE WHEN end_time = 0 THEN start_time ELSE end_time END DESC LIMIT :limit
+            )
+        """)
+        suspend fun trimToLatest(limit: Int): Int
 
         @Query("SELECT COUNT(*) FROM bypass_detection_session WHERE result = 'SUCCESS_CONFIRMED' AND end_time >= :from")
         fun countSuccessSince(from: Long): Flow<Int>

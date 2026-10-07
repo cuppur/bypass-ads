@@ -1,12 +1,6 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    <path
-        android:fillColor="#111111"
-        android:pathData="M30,27h33c10.5,0 19,8.5 19,19v15c0,10.5 -8.5,19 -19,19H45c-10.5,0 -19,-8.5 -19,-19V31c0,-2.2 1.8,-4 4,-4z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M46,39h8v24h18v7H46z" />
-</vector>
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cancel the adaptive layer's extra viewport so the supplied art stays visible. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android" android:inset="16.666667%">
+    <bitmap android:src="@drawable/bypass_launcher_image"
+        android:gravity="fill" android:filter="true" />
+</inset>

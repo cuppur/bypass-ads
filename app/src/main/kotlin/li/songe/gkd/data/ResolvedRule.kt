@@ -9,6 +9,8 @@ import li.songe.gkd.a11y.appChangeTime
 import li.songe.gkd.a11y.lastTriggerRule
 import li.songe.gkd.a11y.lastTriggerTime
 import li.songe.gkd.store.actionCountFlow
+import li.songe.gkd.BYPASS_SPLASH_SUBS_ID
+import li.songe.gkd.bypass.BypassRuleTiming
 import li.songe.selector.MatchOption
 import li.songe.selector.Selector
 
@@ -142,7 +144,11 @@ sealed class ResolvedRule(
     val isFirstMatchApp: Boolean
         get() = matchChangedTime.value < appChangeTime
 
-    private val matchLimitTime = (matchTime ?: 0) + matchDelay
+    /** Re-arm after verified exit or a budgeted retry; keep cooldown/prerequisites. */
+    fun rearmAfterAdExit() {
+        actionCount.value = 0
+        actionDelayTriggerTime.value = 0L
+    }
 
     val resetMatchType = ResetMatchType.allSubObject.find {
         it.value == resetMatch
@@ -182,7 +188,7 @@ sealed class ResolvedRule(
             if (matchDelay > 0 && t - c < matchDelay) {
                 return RuleStatus.Status3 // 处于匹配延迟中
             }
-            if (matchTime != null && t - c > matchLimitTime) {
+            if (BypassRuleTiming.matchExpired(subsItem.id == BYPASS_SPLASH_SUBS_ID, t - c, matchTime, matchDelay)) {
                 return RuleStatus.Status4 // 超出匹配时间
             }
             if (actionTriggerTime.value + actionCd > t) {
@@ -225,6 +231,18 @@ sealed class RuleStatus(val name: String) {
     data object Status4 : RuleStatus("超出匹配时间")
     data object Status5 : RuleStatus("处于冷却时间")
     data object Status6 : RuleStatus("处于触发延迟")
+
+    /** Stable metadata even after R8 renames implementation classes. */
+    val diagnosticCode: String
+        get() = when (this) {
+            StatusOk -> "READY"
+            Status1 -> "ACTION_MAXIMUM"
+            Status2 -> "PREREQUISITE"
+            Status3 -> "MATCH_DELAY"
+            Status4 -> "MATCH_EXPIRED"
+            Status5 -> "COOLDOWN"
+            Status6 -> "ACTION_DELAY"
+        }
 
     val ok: Boolean
         get() = this === StatusOk

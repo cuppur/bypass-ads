@@ -27,6 +27,7 @@ import li.songe.gkd.data.SubsConfig
 import li.songe.gkd.db.DbSet
 import li.songe.gkd.service.fixRestartAutomatorService
 import li.songe.gkd.service.A11yService
+import li.songe.gkd.service.A11yInstanceRegistry
 import li.songe.gkd.service.StatusService
 import li.songe.gkd.service.setA11yServiceEnabled
 import li.songe.gkd.permission.shizukuGrantedState
@@ -62,9 +63,10 @@ object GkdBypassEngine : BypassEngine {
     private val protectedAppsCache = MutableStateFlow<List<BypassAppInfo>>(emptyList())
     private val lastRecoveryAttemptAt = MutableStateFlow(0L)
     private val categoryMap by lazy { readCategoryMap() }
-    /** Bumped whenever the system accessibility state changes so [serviceState]
-     * re-reads Bound/authorized even if the in-process instance flag lags. */
-    private val a11ySystemTick = MutableStateFlow(0L)
+    // Publish the current owner synchronously at lifecycle/permission edges.
+    // An asynchronous collector's old running value must not leave a live
+    // service labelled as recovering after an APK upgrade.
+    private val currentServiceState = MutableStateFlow(BypassServiceState(BypassServiceStatus.OFF))
 
     init {
         runCatching {
@@ -80,6 +82,7 @@ object GkdBypassEngine : BypassEngine {
                 li.songe.gkd.contentObserver { noteA11ySystemChanged() },
             )
         }
+        noteA11ySystemChanged()
         // P0-4: restore the persisted local-import origin side-map before ANY
         // resolution (the resolver also restores lazily, but the engine must
         // not depend on the UI having been opened).
@@ -196,20 +199,17 @@ object GkdBypassEngine : BypassEngine {
 
     /** Called from the live a11y service and from settings observers. */
     fun noteA11ySystemChanged() {
-        a11ySystemTick.value = System.currentTimeMillis()
+        currentServiceState.value = BypassServiceState(
+            resolveBypassServiceStatus(
+                instanceRunning = A11yService.instance != null,
+                authorized = checkA11yAuthorized(),
+                systemBound = checkA11ySystemBound(),
+                accessibilityEnabled = checkA11yEnabled(),
+            ),
+        )
     }
 
-    override val serviceState: StateFlow<BypassServiceState> =
-        combine(A11yService.isRunning, a11ySystemTick) { running, _ ->
-            BypassServiceState(
-                resolveBypassServiceStatus(
-                    instanceRunning = running,
-                    authorized = checkA11yAuthorized(),
-                    systemBound = checkA11ySystemBound(),
-                    accessibilityEnabled = checkA11yEnabled(),
-                ),
-            )
-        }.stateIn(appScope, SharingStarted.Eagerly, BypassServiceState(BypassServiceStatus.OFF))
+    override val serviceState: StateFlow<BypassServiceState> = currentServiceState
 
     override val masterEnabled: StateFlow<Boolean> =
         storeFlow.mapState(appScope) { it.enableMatch }
@@ -246,16 +246,16 @@ object GkdBypassEngine : BypassEngine {
     override val permissionState: StateFlow<BypassPermissionState> = permissionStateFlow
 
     override val accessibilityControl: StateFlow<BypassAccessibilityControl> = combine(
-        A11yService.isRunning,
+        serviceState,
         permissionStateFlow,
         writeSecureSettingsState.stateFlow,
         shizukuGrantedState.stateFlow,
-    ) { running, _, hasWriteSecureSettings, hasShizuku ->
+    ) { service, _, hasWriteSecureSettings, hasShizuku ->
         val authorized = checkA11yAuthorized()
         BypassAccessibilityControl(
             status = when {
-                running -> BypassAccessibilityStatus.ENABLED
-                authorized && hasWriteSecureSettings -> BypassAccessibilityStatus.RECOVERING
+                service.status == BypassServiceStatus.NORMAL -> BypassAccessibilityStatus.ENABLED
+                authorized -> BypassAccessibilityStatus.RECOVERING
                 hasWriteSecureSettings -> BypassAccessibilityStatus.DISABLED
                 else -> BypassAccessibilityStatus.NEED_AUTHORIZATION
             },
@@ -269,13 +269,13 @@ object GkdBypassEngine : BypassEngine {
     )
 
     override val runtimeProtection: StateFlow<BypassRuntimeProtection> = combine(
-        A11yService.isRunning,
+        serviceState,
         StatusService.isRunning,
         permissionStateFlow,
         A11yService.lastConnectedAt,
-    ) { accessibilityRunning, notificationRunning, permission, connectedAt ->
+    ) { service, notificationRunning, permission, connectedAt ->
         BypassRuntimeProtection(
-            accessibilityConnected = accessibilityRunning,
+            accessibilityConnected = service.status == BypassServiceStatus.NORMAL,
             statusServiceRunning = notificationRunning,
             notificationGranted = permission.notificationGranted,
             ignoringBatteryOptimizations = permission.ignoringBatteryOptimizations,
@@ -294,6 +294,21 @@ object GkdBypassEngine : BypassEngine {
         DbSet.bypassDetectionSessionDao.queryAll().map { sessions ->
             sessions.map { it.toSessionRecord() }
         }.stateIn(appScope, SharingStarted.Eagerly, emptyList())
+
+    override val unsuccessfulApps: StateFlow<List<BypassUnsuccessfulAppStats>> =
+        DbSet.bypassDetectionSessionDao.queryUnsuccessfulByApp(System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000)
+            .stateIn(appScope, SharingStarted.Eagerly, emptyList())
+
+    override suspend fun reportMissedAd(packageName: String): String {
+        require(Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+").matches(packageName))
+        val reason = when {
+            !storeFlow.value.enableMatch -> FailureReason.MASTER_DISABLED
+            !li.songe.gkd.a11y.isBypassAppEnabled(packageName) -> FailureReason.APP_DISABLED
+            A11yService.instance == null -> FailureReason.EVENT_MISSED
+            else -> FailureReason.ACCESSIBILITY_NODE_MISSING
+        }
+        return BypassDetectionSessions.reportMissedAd(packageName, strategyMode.value, reason)
+    }
 
     /**
      * Latest FINALIZED ad session (never an in-progress OPEN session, never
@@ -440,6 +455,13 @@ object GkdBypassEngine : BypassEngine {
     override fun refreshPermissionState() {
         permissionStateFlow.value = readPermissionState()
         noteA11ySystemChanged()
+        li.songe.gkd.util.LogUtils.d(
+            "a11y-status live=${A11yService.instance != null}" +
+                " registry=${A11yInstanceRegistry.isRunning.value}" +
+                " alias=${A11yService.isRunning.value}" +
+                " authorized=${checkA11yAuthorized()}" +
+                " published=${currentServiceState.value.status.name}",
+        )
     }
 
     override fun requestServiceRecovery() {

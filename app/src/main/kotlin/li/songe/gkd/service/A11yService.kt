@@ -38,6 +38,9 @@ abstract class A11yService : AccessibilityService(), OnA11yLife by DefaultA11yLi
     override val mode get() = AutomatorModeOption.A11yMode
     override val windowNodeInfo: AccessibilityNodeInfo? get() = rootInActiveWindow
     override val windowInfos: List<AccessibilityWindowInfo> get() = windows
+    @Volatile
+    final override var screenshotFailureCode: Int? = null
+        private set
     override suspend fun screenshot(): Bitmap? = suspendCancellableCoroutine { cont ->
         if (AndroidTarget.R) {
             takeScreenshot(
@@ -45,19 +48,18 @@ abstract class A11yService : AccessibilityService(), OnA11yLife by DefaultA11yLi
                 application.mainExecutor,
                 object : TakeScreenshotCallback {
                     override fun onFailure(errorCode: Int) {
+                        screenshotFailureCode = errorCode
                         if (cont.isActive) {
                             cont.resume(null)
                         }
                     }
 
                     override fun onSuccess(screenshot: ScreenshotResult) {
+                        screenshotFailureCode = null
                         try {
                             if (cont.isActive) {
-                                cont.resume(
-                                    Bitmap.wrapHardwareBuffer(
-                                        screenshot.hardwareBuffer, screenshot.colorSpace
-                                    )
-                                )
+                                val bitmap = Bitmap.wrapHardwareBuffer(screenshot.hardwareBuffer, screenshot.colorSpace)
+                                cont.resume(bitmap) { _, value, _ -> value?.recycle() }
                             }
                         } finally {
                             screenshot.hardwareBuffer.close()
@@ -78,16 +80,19 @@ abstract class A11yService : AccessibilityService(), OnA11yLife by DefaultA11yLi
         // not stay on "正在恢复" while the system already reports Bound.
         A11yInstanceRegistry.connected(this)
         onCreated()
+        li.songe.gkd.bypass.GkdBypassEngine.noteA11ySystemChanged()
     }
     override fun onServiceConnected() {
         A11yInstanceRegistry.connected(this)
-        onA11yConnected()
+        if (!connected) onA11yConnected()
+        li.songe.gkd.bypass.GkdBypassEngine.noteA11ySystemChanged()
     }
     override fun onInterrupt() {}
     override fun onDestroy() {
         onDestroyed()
         // Identity-checked: an old instance must never clear a newer one.
         A11yInstanceRegistry.destroyed(this)
+        li.songe.gkd.bypass.GkdBypassEngine.noteA11ySystemChanged()
     }
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         // Any live event is proof the service is Bound and working — keep the
@@ -99,6 +104,10 @@ abstract class A11yService : AccessibilityService(), OnA11yLife by DefaultA11yLi
         if (!wasRunning) {
             li.songe.gkd.bypass.GkdBypassEngine.noteA11ySystemChanged()
         }
+        // A Bound HyperOS service can receive live events after an upgrade
+        // without onServiceConnected. Initialize the engine and visual worker
+        // from that proof of connection too; the UI registry alone is not enough.
+        if (!connected) onA11yConnected()
         ruleEngine.onA11yEvent(event)
     }
 

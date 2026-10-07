@@ -267,6 +267,16 @@ if ($manifestXml -match 'allowBackup="true"') {
     exit 1
 }
 
+# ML Kit discovers its registrars by reflection. Check the actual R8 mapping,
+# not only debug tests: a missing constructor disables the local text model.
+$mlkitManifest = Join-Path $repoRoot "app\build\intermediates\merged_manifests\gkdRelease\processGkdReleaseManifest\AndroidManifest.xml"
+$releaseMapping = Join-Path $repoRoot "app\build\outputs\mapping\gkdRelease\mapping.txt"
+python (Join-Path $repoRoot "tools\check_mlkit_release.py") --manifest $mlkitManifest --mapping $releaseMapping
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "ML Kit release registration FAILED - refusing to ship the APK."
+    exit 1
+}
+
 # 7. verify the APK actually packs the full local bundle (not the fixture)
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip = [System.IO.Compression.ZipFile]::OpenRead($apkPath)

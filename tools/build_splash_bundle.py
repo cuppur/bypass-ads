@@ -53,30 +53,28 @@ CONFLICT_REPORT_DEFAULT = REPO_ROOT / "build/bypass-rule-conflicts.json"
 # global rule is preferred. This group is emitted only when the source has no
 # splash global rule, so broad global selectors never compete with each other.
 # The last rule uses clickCenter only for a short, visible, skip-semantic node
-# in the opening window. All risky application classes are explicitly blocked.
+# while explicit exits remain event-driven. Risky app classes are blocked.
 # ---------------------------------------------------------------------------
 GENERIC_FALLBACK_GROUP = {
     "key": 9000,
     "name": "开屏广告-通用跳过",
-    "matchTime": 10000,
+    "forcedTime": 10000,
     "actionMaximum": 1,
     "resetMatch": "app",
     "fastQuery": True,
     "rules": [
         {
             "key": 0,
-            "excludeMatches": '[text="NEXT" || text="下一步" || text="完成" || text="设置" || text="搜索" || text="历史记录" || text*="阅读并同意" || text*="跳过片头" || text*="跳过片尾" || text*="跳过视频" || text="取消" || text*="退出" || text="帮助"][visibleToUser=true]',
             "anyMatches": [
-                '[clickable=true][visibleToUser=true][width<500 && height<300][(text.length<10 && (text*="跳过" || text*="跳 过" || text*="跳過" || text~="(?is).*skip.*")) || (desc.length<10 && (desc*="跳过" || desc*="跳過" || desc~="(?is).*skip.*")) || (vid~="(?is).*skip.*" && vid!~="(?is).*video.*" && vid!~="(?is).*head.*" && vid!~="(?is).*tail.*") || id$="tt_splash_skip_btn"]',
-                '@[clickable=true][visibleToUser=true][width<500 && height<300] > [childCount=0][visibleToUser=true][(text.length<10 && (text*="跳过" || text*="跳 过" || text*="跳過" || text~="(?is).*skip.*")) || (desc.length<10 && (desc*="跳过" || desc*="跳過" || desc~="(?is).*skip.*")) || (vid~="(?is).*skip.*" && vid!~="(?is).*video.*" && vid!~="(?is).*head.*" && vid!~="(?is).*tail.*") || id$="tt_splash_skip_btn"]'
+                '[clickable=true][visibleToUser=true][width<500 && height<300][(text.length<10 && (text*="跳过" || text*="跳 过" || text*="跳過" || text~="(?is).*skip.*")) || (desc.length<10 && (desc*="跳过" || desc*="跳過" || desc~="(?is).*skip.*")) || (vid~="(?is).*skip.*" && vid!~="(?is).*video.*" && vid!~="(?is).*head.*" && vid!~="(?is).*tail.*") || id$="tt_splash_skip_btn"][text!~="(?is).*(next|下一步|完成|设置|搜索|历史记录|阅读并同意|跳过片头|跳过片尾|跳过视频|取消|退出|帮助).*"][desc!~="(?is).*(next|下一步|完成|设置|搜索|历史记录|阅读并同意|跳过片头|跳过片尾|跳过视频|取消|退出|帮助).*"]',
+                '@[clickable=true][visibleToUser=true][width<500 && height<300] > [childCount=0][visibleToUser=true][(text.length<10 && (text*="跳过" || text*="跳 过" || text*="跳過" || text~="(?is).*skip.*")) || (desc.length<10 && (desc*="跳过" || desc*="跳過" || desc~="(?is).*skip.*")) || (vid~="(?is).*skip.*" && vid!~="(?is).*video.*" && vid!~="(?is).*head.*" && vid!~="(?is).*tail.*") || id$="tt_splash_skip_btn"][text!~="(?is).*(next|下一步|完成|设置|搜索|历史记录|阅读并同意|跳过片头|跳过片尾|跳过视频|取消|退出|帮助).*"][desc!~="(?is).*(next|下一步|完成|设置|搜索|历史记录|阅读并同意|跳过片头|跳过片尾|跳过视频|取消|退出|帮助).*"]'
             ],
         },
         {
             "key": 1,
             "action": "clickCenter",
-            "excludeMatches": '[text="NEXT" || text="下一步" || text="完成" || text="设置" || text="搜索" || text="历史记录" || text*="阅读并同意" || text*="跳过片头" || text*="跳过片尾" || text*="跳过视频" || text="取消" || text*="退出" || text="帮助"][visibleToUser=true]',
             "anyMatches": [
-                '[clickable=false][childCount=0][visibleToUser=true][width<300 && height<200][(text.length<10 && (text*="跳过" || text*="跳 过" || text*="跳過" || text~="(?is).*skip.*")) || (desc.length<10 && (desc*="跳过" || desc*="跳過" || desc~="(?is).*skip.*")) || (vid~="(?is).*skip.*" && vid!~="(?is).*video.*" && vid!~="(?is).*head.*" && vid!~="(?is).*tail.*") || id$="tt_splash_skip_btn"]'
+                '[clickable=false][childCount=0][visibleToUser=true][width<300 && height<200][(text.length<10 && (text*="跳过" || text*="跳 过" || text*="跳過" || text~="(?is).*skip.*")) || (desc.length<10 && (desc*="跳过" || desc*="跳過" || desc~="(?is).*skip.*")) || (vid~="(?is).*skip.*" && vid!~="(?is).*video.*" && vid!~="(?is).*head.*" && vid!~="(?is).*tail.*") || id$="tt_splash_skip_btn"][text!~="(?is).*(next|下一步|完成|设置|搜索|历史记录|阅读并同意|跳过片头|跳过片尾|跳过视频|取消|退出|帮助).*"][desc!~="(?is).*(next|下一步|完成|设置|搜索|历史记录|阅读并同意|跳过片头|跳过片尾|跳过视频|取消|退出|帮助).*"]'
             ]
         },
     ],
@@ -167,18 +165,20 @@ GENERIC_FALLBACK_GROUP["apps"] = [
 # a bounded clickable parent and a small non-clickable skip target.
 SOURCE_GLOBAL_REINFORCEMENT_RULES = (
     {
+        "name": "Bypass Ads 明确跳过补强",
+        "matches": GENERIC_FALLBACK_GROUP["rules"][0]["anyMatches"][0].replace("width<500", "width<420").replace("height<300", "height<260"),
+    },
+    {
         "name": "Bypass Ads 可点击父节点补强",
-        "excludeMatches": '[text="NEXT" || text="下一步" || text="完成" || text="设置" || text="搜索" || text="历史记录" || text*="阅读并同意" || text*="跳过片头" || text*="跳过片尾" || text*="跳过视频" || text="取消" || text*="退出" || text="帮助"][visibleToUser=true]',
         "anyMatches": [
-            '@[clickable=true][visibleToUser=true][width<500 && height<300] > [childCount=0][visibleToUser=true][(text.length<10 && (text*="跳过" || text*="跳 过" || text*="跳過" || text~="(?is).*skip.*")) || (desc.length<10 && (desc*="跳过" || desc*="跳過" || desc~="(?is).*skip.*")) || (vid~="(?is).*skip.*" && vid!~="(?is).*video.*" && vid!~="(?is).*head.*" && vid!~="(?is).*tail.*") || id$="tt_splash_skip_btn"]'
+            '@[clickable=true][visibleToUser=true][width<500 && height<300] > [childCount=0][visibleToUser=true][(text.length<10 && (text*="跳过" || text*="跳 过" || text*="跳過" || text~="(?is).*skip.*")) || (desc.length<10 && (desc*="跳过" || desc*="跳過" || desc~="(?is).*skip.*")) || (vid~="(?is).*skip.*" && vid!~="(?is).*video.*" && vid!~="(?is).*head.*" && vid!~="(?is).*tail.*") || id$="tt_splash_skip_btn"][text!~="(?is).*(next|下一步|完成|设置|搜索|历史记录|阅读并同意|跳过片头|跳过片尾|跳过视频|取消|退出|帮助).*"][desc!~="(?is).*(next|下一步|完成|设置|搜索|历史记录|阅读并同意|跳过片头|跳过片尾|跳过视频|取消|退出|帮助).*"]'
         ],
     },
     {
         "name": "Bypass Ads 安全手势补强",
         "action": "clickCenter",
-        "excludeMatches": '[text="NEXT" || text="下一步" || text="完成" || text="设置" || text="搜索" || text="历史记录" || text*="阅读并同意" || text*="跳过片头" || text*="跳过片尾" || text*="跳过视频" || text="取消" || text*="退出" || text="帮助"][visibleToUser=true]',
         "anyMatches": [
-            '[clickable=false][childCount=0][visibleToUser=true][width<300 && height<200][(text.length<10 && (text*="跳过" || text*="跳 过" || text*="跳過" || text~="(?is).*skip.*")) || (desc.length<10 && (desc*="跳过" || desc*="跳過" || desc~="(?is).*skip.*")) || (vid~="(?is).*skip.*" && vid!~="(?is).*video.*" && vid!~="(?is).*head.*" && vid!~="(?is).*tail.*") || id$="tt_splash_skip_btn"]'
+            '[clickable=false][childCount=0][visibleToUser=true][width<300 && height<200][(text.length<10 && (text*="跳过" || text*="跳 过" || text*="跳過" || text~="(?is).*skip.*")) || (desc.length<10 && (desc*="跳过" || desc*="跳過" || desc~="(?is).*skip.*")) || (vid~="(?is).*skip.*" && vid!~="(?is).*video.*" && vid!~="(?is).*head.*" && vid!~="(?is).*tail.*") || id$="tt_splash_skip_btn"][text!~="(?is).*(next|下一步|完成|设置|搜索|历史记录|阅读并同意|跳过片头|跳过片尾|跳过视频|取消|退出|帮助).*"][desc!~="(?is).*(next|下一步|完成|设置|搜索|历史记录|阅读并同意|跳过片头|跳过片尾|跳过视频|取消|退出|帮助).*"]'
         ],
     },
     {
@@ -188,11 +188,10 @@ SOURCE_GLOBAL_REINFORCEMENT_RULES = (
         # security metadata; the name marker is only for log readability.
         "name": "Bypass Ads 策略化关闭补强-Aggressive",
         "bypassMode": "AGGRESSIVE",
-        "excludeMatches": '[text="NEXT" || text="下一步" || text="完成" || text="设置" || text="搜索" || text="历史记录" || text*="阅读并同意" || text*="跳过片头" || text*="跳过片尾" || text*="跳过视频" || text="取消" || text*="退出" || text="帮助"][visibleToUser=true]',
         "anyMatches": [
-            '[clickable=true][visibleToUser=true][width<300 && height<200][(text="关闭" || text="关闭广告" || text="关闭此广告" || text="关闭该广告" || text="關閉" || text="關閉廣告" || text="Close" || text="close")]',
-            '[clickable=true][visibleToUser=true][width<300 && height<200][(desc="关闭" || desc="关闭广告" || desc="關閉" || desc="close" || desc="Close")]',
-            '[clickable=true][visibleToUser=true][width<300 && height<200][vid~="(?is).*(ad_close|splash_close|close_ad|close_btn|close_icon)"]'
+            '[clickable=true][visibleToUser=true][width<300 && height<200][(text="关闭" || text="关闭广告" || text="关闭此广告" || text="关闭该广告" || text="關閉" || text="關閉廣告" || text="Close" || text="close")][text!~="(?is).*(next|下一步|完成|设置|搜索|历史记录|阅读并同意|跳过片头|跳过片尾|跳过视频|取消|退出|帮助).*"][desc!~="(?is).*(next|下一步|完成|设置|搜索|历史记录|阅读并同意|跳过片头|跳过片尾|跳过视频|取消|退出|帮助).*"]',
+            '[clickable=true][visibleToUser=true][width<300 && height<200][(desc="关闭" || desc="关闭广告" || desc="關閉" || desc="close" || desc="Close")][text!~="(?is).*(next|下一步|完成|设置|搜索|历史记录|阅读并同意|跳过片头|跳过片尾|跳过视频|取消|退出|帮助).*"][desc!~="(?is).*(next|下一步|完成|设置|搜索|历史记录|阅读并同意|跳过片头|跳过片尾|跳过视频|取消|退出|帮助).*"]',
+            '[clickable=true][visibleToUser=true][width<300 && height<200][vid~="(?is).*(ad_close|splash_close|close_ad|close_btn|close_icon)"][text!~="(?is).*(next|下一步|完成|设置|搜索|历史记录|阅读并同意|跳过片头|跳过片尾|跳过视频|取消|退出|帮助).*"][desc!~="(?is).*(next|下一步|完成|设置|搜索|历史记录|阅读并同意|跳过片头|跳过片尾|跳过视频|取消|退出|帮助).*"]'
         ],
     },
     {
@@ -202,10 +201,9 @@ SOURCE_GLOBAL_REINFORCEMENT_RULES = (
         "name": "Bypass Ads 策略化 X 补强-Aggressive",
         "bypassMode": "AGGRESSIVE",
         "action": "clickCenter",
-        "excludeMatches": '[text="NEXT" || text="下一步" || text="完成" || text="设置" || text="搜索" || text="历史记录" || text*="阅读并同意" || text*="跳过片头" || text*="跳过片尾" || text*="跳过视频" || text="取消" || text*="退出" || text="帮助"][visibleToUser=true]',
         "anyMatches": [
-            '[clickable=true][visibleToUser=true][width<120 && height<120][(text="X" || text="×" || text="✕")]',
-            '[clickable=false][childCount=0][visibleToUser=true][width<120 && height<120][(text="X" || text="×" || text="✕")]'
+            '[clickable=true][visibleToUser=true][width<120 && height<120][(text="X" || text="×" || text="✕")][text!~="(?is).*(next|下一步|完成|设置|搜索|历史记录|阅读并同意|跳过片头|跳过片尾|跳过视频|取消|退出|帮助).*"][desc!~="(?is).*(next|下一步|完成|设置|搜索|历史记录|阅读并同意|跳过片头|跳过片尾|跳过视频|取消|退出|帮助).*"]',
+            '[clickable=false][childCount=0][visibleToUser=true][width<120 && height<120][(text="X" || text="×" || text="✕")][text!~="(?is).*(next|下一步|完成|设置|搜索|历史记录|阅读并同意|跳过片头|跳过片尾|跳过视频|取消|退出|帮助).*"][desc!~="(?is).*(next|下一步|完成|设置|搜索|历史记录|阅读并同意|跳过片头|跳过片尾|跳过视频|取消|退出|帮助).*"]'
         ],
     },
     {
@@ -215,10 +213,9 @@ SOURCE_GLOBAL_REINFORCEMENT_RULES = (
         "name": "Bypass Ads 策略化结构关闭补强-Crazy",
         "bypassMode": "CRAZY",
         "action": "clickCenter",
-        "excludeMatches": '[text="NEXT" || text="下一步" || text="完成" || text="设置" || text="搜索" || text="历史记录" || text*="阅读并同意" || text*="跳过片头" || text*="跳过片尾" || text*="跳过视频" || text="取消" || text*="退出" || text="帮助"][visibleToUser=true]',
         "anyMatches": [
-            '[clickable=true][visibleToUser=true][width<160 && height<160][name="android.view.View" || name="android.widget.ImageView"]',
-            '[clickable=false][childCount=0][visibleToUser=true][width<160 && height<160][name="android.view.View" || name="android.widget.ImageView"]'
+            '[clickable=true][visibleToUser=true][width<160 && height<160][name="android.view.View" || name="android.widget.ImageView"][text!~="(?is).*(next|下一步|完成|设置|搜索|历史记录|阅读并同意|跳过片头|跳过片尾|跳过视频|取消|退出|帮助).*"][desc!~="(?is).*(next|下一步|完成|设置|搜索|历史记录|阅读并同意|跳过片头|跳过片尾|跳过视频|取消|退出|帮助).*"]',
+            '[clickable=false][childCount=0][visibleToUser=true][width<160 && height<160][name="android.view.View" || name="android.widget.ImageView"][text!~="(?is).*(next|下一步|完成|设置|搜索|历史记录|阅读并同意|跳过片头|跳过片尾|跳过视频|取消|退出|帮助).*"][desc!~="(?is).*(next|下一步|完成|设置|搜索|历史记录|阅读并同意|跳过片头|跳过片尾|跳过视频|取消|退出|帮助).*"]'
         ],
     },
 )
@@ -412,17 +409,34 @@ def normalized_group(group: dict) -> str:
     return json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+def normalize_rules(value) -> list:
+    """GKD accepts a group-level string/object as a single rule, too."""
+    rules = value if isinstance(value, list) else [value]
+    return [{"matches": rule} if isinstance(rule, list) else rule for rule in rules]
+
+
 def prepare_source(data: dict, provenance: dict) -> tuple[list, list]:
     apps = []
     for app in data.get("apps", []):
         groups = []
         for group in app.get("groups", []):
             if is_ad_group(group.get("name", "")):
-                groups.append({**group, "bypassProvenance": [provenance]})
+                prepared = {**group, "rules": normalize_rules(group.get("rules", [])), "bypassProvenance": [provenance]}
+                if app.get("id") in {"com.tencent.mm", "com.eg.android.AlipayGphone"} and "小程序" in group.get("name", ""):
+                    prepared["matchRoot"] = True
+                    # SDK layouts are shared by base XRiverActivity and its
+                    # $Main/$1 subclasses. Keep the existing prefix and add
+                    # the base activity for this ad-only mini-program group.
+                    scopes = prepared.get("activityIds", [])
+                    scopes = [scopes] if isinstance(scopes, str) else list(scopes)
+                    base = "com.alipay.mobile.nebulax.xriver.activity.XRiverActivity"
+                    if app.get("id") == "com.eg.android.AlipayGphone" and base + "$" in scopes:
+                        prepared["activityIds"] = list(dict.fromkeys(scopes + [base]))
+                groups.append(prepared)
         if groups:
             apps.append({**app, "groups": groups})
     globals_ = [
-        {**group, "bypassProvenance": [provenance]}
+        {**group, "rules": normalize_rules(group.get("rules", [])), "bypassProvenance": [provenance]}
         for group in data.get("globalGroups", [])
         if is_splash_global_group(group.get("name", ""))
     ]
@@ -513,15 +527,18 @@ def merge_sources(sources: list[tuple[dict, Path]]) -> tuple[dict, dict]:
     }, report
 
 
-def _same_rule(a: dict, b: dict) -> bool:
-    """Rules are considered duplicates when their key match strings (and the
-    delay that gates the action) are identical — this is what makes override
-    merging idempotent."""
-    return (
-        a.get("matches") == b.get("matches")
-        and a.get("anyMatches") == b.get("anyMatches")
-        and a.get("actionDelay") == b.get("actionDelay")
-    )
+def _same_rule(a: dict, b: dict | str) -> bool:
+    """Rules are duplicates only when matching, action and policy semantics
+    are identical. Names and assigned keys do not affect execution."""
+    if isinstance(b, str):
+        b = {"matches": b}
+    def semantics(rule: dict) -> dict:
+        body = {key: value for key, value in rule.items() if key not in {"key", "name"}}
+        for field in ("matches", "anyMatches", "excludeMatches", "excludeAllMatches"):
+            if isinstance(body.get(field), str):
+                body[field] = [body[field]]
+        return body
+    return semantics(a) == semantics(b)
 
 
 def apply_overrides(apps: list, overrides: dict) -> int:
@@ -548,7 +565,7 @@ def apply_overrides(apps: list, overrides: dict) -> int:
                     if key not in {"key", "rules"}
                 }
                 group["key"] = max((g.get("key", 0) for g in app["groups"]), default=-1) + 1
-                group.setdefault("matchTime", 10000)
+                group.setdefault("forcedTime", 10000)
                 group["rules"] = []
                 group["bypassProvenance"] = [{
                     "sourceName": "Bypass override",
@@ -558,11 +575,16 @@ def apply_overrides(apps: list, overrides: dict) -> int:
                 app["groups"].append(group)
             existing = group.get("rules", [])
             for rule in ov_group.get("rules", []):
-                if any(_same_rule(rule, r) for r in existing):
-                    continue
                 new_rule = dict(rule)
+                # Same-name upstream groups can have an older host allowlist.
+                # Carry our scope on our rules, without widening source rules.
+                for scope_field in ("activityIds", "excludeActivityIds"):
+                    if scope_field not in new_rule and scope_field in ov_group:
+                        new_rule[scope_field] = ov_group[scope_field]
+                if any(_same_rule(new_rule, r) for r in existing):
+                    continue
                 # never collide with existing keys; keep override keys stable
-                used_keys = {r.get("key", -1) for r in existing}
+                used_keys = {r.get("key", -1) for r in existing if isinstance(r, dict)}
                 key = rule.get("key")
                 while key is None or key in used_keys:
                     key = max(used_keys, default=-1) + 1
@@ -591,9 +613,39 @@ def add_generic_fallback(bundle: dict) -> int:
     return 1
 
 
+def validate_rule_contracts(bundle: dict) -> list:
+    """Audit every rule, including GKD's string shorthand and unkeyed rules."""
+    errors = []
+    scopes = [(a.get("id"), a.get("groups", [])) for a in bundle.get("apps", [])]
+    scopes.append(("global", bundle.get("globalGroups", [])))
+    for scope, groups in scopes:
+        group_keys = set()
+        for group in groups:
+            key = group.get("key")
+            if key in group_keys:
+                errors.append(f"重复组编号: {scope}/{key}")
+            group_keys.add(key)
+            rule_keys = set()
+            for index, raw in enumerate(normalize_rules(group.get("rules", []))):
+                rule = {"matches": raw} if isinstance(raw, str) else raw
+                if not isinstance(rule, dict):
+                    errors.append(f"非法规则: {scope}/{key}/{index}")
+                    continue
+                rkey = rule.get("key")
+                if rkey is not None:
+                    if rkey in rule_keys:
+                        errors.append(f"重复规则编号: {scope}/{key}/{rkey}")
+                    rule_keys.add(rkey)
+                if not (rule.get("matches") or rule.get("anyMatches")):
+                    errors.append(f"无匹配条件: {scope}/{key}/{index}")
+                if rule.get("bypassOrigin") == "OVERRIDE" and rule.get("bypassMode") not in (None, "AGGRESSIVE", "CRAZY"):
+                    errors.append(f"非法策略: {scope}/{key}/{index}")
+    return errors
+
+
 def validate_bundle(bundle: dict) -> list:
     """Validate the final bundle. Returns a list of error strings (empty = ok)."""
-    errors = []
+    errors = validate_rule_contracts(bundle)
     # 1. only product advertising groups are allowed
     for app in bundle.get("apps", []):
         for g in app.get("groups", []):

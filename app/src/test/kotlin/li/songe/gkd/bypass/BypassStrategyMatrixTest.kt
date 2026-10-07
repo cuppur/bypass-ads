@@ -94,10 +94,9 @@ class BypassStrategyMatrixTest {
     }
 
     @Test
-    fun out_of_window_rejects_generic_close() {
+    fun out_of_window_allows_confirmed_ad_close() {
         val p = policyFor(1)
-        assertEquals(
-            BypassRejectReason.OUTSIDE_WINDOW,
+        assertNull(
             gate(BypassExitCandidateType.CLOSE_TEXT, p, 80, 40, inWindow = false),
         )
     }
@@ -189,10 +188,9 @@ class BypassStrategyMatrixTest {
     }
 
     @Test
-    fun wechat_override_outside_window_is_no() {
-        // P0-3 acceptance: 微信 override + OUTSIDE_WINDOW => NO.
-        assertEquals(
-            BypassRejectReason.OUTSIDE_WINDOW,
+    fun wechat_override_outside_window_is_allowed() {
+        // Late mini-program close is allowed only with current STRONG evidence.
+        assertNull(
             wechatOverrideGate(inWindow = false, context = BypassAdContextLevel.STRONG),
         )
     }
@@ -297,12 +295,9 @@ class BypassStrategyMatrixTest {
     )
 
     @Test
-    fun high_risk_bundled_dedicated_outside_window_is_no() {
-        // Acceptance: high-risk host + BUNDLED_DEDICATED + OUTSIDE_WINDOW => NO.
-        // On high-risk hosts "dedicated" only waives untrusted source; the
-        // window gate still applies.
-        assertEquals(
-            BypassRejectReason.OUTSIDE_WINDOW,
+    fun high_risk_bundled_dedicated_outside_window_is_allowed() {
+        // Curated late close still passes strategy and current ad evidence checks.
+        assertNull(
             prodGate(
                 candidate = BypassExitCandidateType.CLOSE_TEXT,
                 packageName = "com.tencent.mm",
@@ -379,11 +374,9 @@ class BypassStrategyMatrixTest {
     }
 
     @Test
-    fun wechat_official_skip_outside_window_is_no() {
-        // Acceptance: WeChat official Skip (BYPASS_OVERRIDE, no bypassMode
-        // needed — structured origin) + OUTSIDE_WINDOW => NO.
-        assertEquals(
-            BypassRejectReason.OUTSIDE_WINDOW,
+    fun wechat_official_skip_outside_window_is_allowed() {
+        // Explicit Skip remains available when a mini-program ad appears late.
+        assertNull(
             prodGate(
                 candidate = BypassExitCandidateType.SKIP_TEXT,
                 packageName = "com.tencent.mm",

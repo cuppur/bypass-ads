@@ -166,9 +166,14 @@ object BypassAdContextTracker {
 
     /** Curated ad-specific close viewIds (P0-1): the only viewIds that are
      * themselves STRONG ad evidence. */
-    private fun isAdSpecificViewId(viewId: String?): Boolean {
-        val v = viewId?.lowercase().orEmpty()
+    internal fun isAdSpecificViewId(viewId: String?): Boolean {
+        val v = BypassExitClassifier.resourceName(viewId)
         return v.contains("ad_close") || v.contains("splash_close") || v.contains("close_ad")
+    }
+
+    internal fun isExplicitAdCloseLabel(text: String?, description: String?): Boolean {
+        val label = listOfNotNull(text, description).joinToString(" ").lowercase()
+        return listOf("关闭广告", "關閉廣告", "close ad", "关闭弹屏").any { label.contains(it) }
     }
 
     /**
@@ -192,11 +197,31 @@ object BypassAdContextTracker {
         candidateBounds: String?,
         candidateType: BypassExitCandidateType? = null,
         now: Long = System.currentTimeMillis(),
+        candidateViewId: String? = null,
+        candidateText: String? = null,
+        candidateDescription: String? = null,
+        candidateHasAdjacentCountdown: Boolean = false,
     ): BypassAdContextLevel {
         // The current candidate being an explicit Skip is itself STRONG ad
         // evidence (task card: Skip does not require STRONG to act, but it
         // is STRONG evidence for a later same-region Close).
         if (candidateType == BypassExitCandidateType.SKIP_TEXT) {
+            return BypassAdContextLevel.STRONG
+        }
+        if (candidateType == BypassExitCandidateType.CLOSE_TEXT || candidateType == BypassExitCandidateType.CLOSE_DESC) {
+            if (isExplicitAdCloseLabel(candidateText, candidateDescription)) {
+                return BypassAdContextLevel.STRONG
+            }
+            if (candidateHasAdjacentCountdown && isMiniProgramAdActivity(packageName, activityName)) {
+                return BypassAdContextLevel.STRONG
+            }
+        }
+        // Evaluate the current control before noteCandidate persists it. An
+        // ad-specific id is already evidence; requiring earlier observations
+        // here would reject the first (and every subsequent) match.
+        if (candidateType == BypassExitCandidateType.CLOSE_VIEW_ID &&
+            isAdSpecificViewId(candidateViewId)
+        ) {
             return BypassAdContextLevel.STRONG
         }
         val key = windowKey(packageName, activityName)
@@ -372,7 +397,8 @@ object BypassAdContextTracker {
         if (activityName.isNullOrBlank()) return false
         return when (packageName) {
             "com.tencent.mm" ->
-                activityName.contains(".plugin.appbrand.ui.AppBrandUI") ||
+                  activityName.contains(".plugin.appbrand.ui.AppBrandUI") ||
+                      activityName.contains(".plugin.appbrand.ui.AppBrandPluginUI") ||
                     activityName.contains(".plugin.appbrand.launching.AppBrandLaunchProxyUI") ||
                     activityName.contains("AppBrandUI")
             "com.eg.android.AlipayGphone" ->

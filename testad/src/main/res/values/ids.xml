@@ -2,4 +2,5 @@
 <resources>
     <item name="splash_skip_control" type="id" />
     <item name="ad_close" type="id" />
+    <item name="waiting_exit_control" type="id" />
 </resources>

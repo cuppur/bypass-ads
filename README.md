@@ -24,7 +24,7 @@
 
 ## 构建
 
-需要 JDK 17+ 与 Android SDK（`local.properties` 配置 `sdk.dir`）：
+需要 JDK 21+（构建插件的最低要求）与 Android SDK（`local.properties` 配置 `sdk.dir`）：
 
 自用正式版（推荐，单命令产出已签名 Release APK）：
 

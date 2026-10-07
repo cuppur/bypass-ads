@@ -65,6 +65,10 @@ APK 权限/包名/版本/allowBackup/内置规则 SHA 检查 → ML Kit 的 R8 �
 
 排查依据与已知边界见 [广告跳过诊断](docs/AD_SKIP_DIAGNOSIS.md)，维护入口见 [HANDOVER](HANDOVER.md) 和 [工具说明](tools/README.md)。
 
+GitHub 仅保存源码、必要资源、自写规则夹具、测试及维护文档。构建缓存、APK、
+设备原始数据、签名材料与第三方完整规则包均不提交；CI 的仓库完整性检查会拦截
+误加入 Git 的本地产物。GitHub 自动生成的源码下载包来自已提交的文件。
+
 ## 免责声明
 
 **本项目基于 [GKD](https://github.com/gkd-kit/gkd) 修改，依据 [GPL-3.0](/LICENSE) 发布。软件按现状提供，无担保。使用者需遵守适用法律法规。**

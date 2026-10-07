@@ -6,7 +6,7 @@ Checks:
   2. the current branch contains f7001e7 (healthy history) ancestry;
   3. tracked file count is sane for this project;
   4. no accidental build artifacts are tracked;
-  5. the generated bundle / safety asset relationship is coherent.
+  5. generated local rules, diagnostics and signing material stay local.
 """
 
 import subprocess
@@ -39,11 +39,29 @@ IMPORTANT = [
     "docs/PROJECT_STATE.md",
 ]
 
-FORBIDDEN_TRACKED = [
-    "app/src/main/assets/bypass_splash_rules.local.json",
-    "tools/.cache/",
-    "__pycache__",
-]
+FORBIDDEN_DIRECTORIES = {
+    "build", "dist", ".gradle", ".kotlin", ".cache", "__pycache__",
+    ".claude", ".idea", ".vscode", "gkd_subscriptions",
+}
+FORBIDDEN_SUFFIXES = {
+    ".apk", ".aab", ".apks", ".jks", ".keystore", ".pyc",
+    ".db", ".sqlite", ".sqlite3", ".log", ".hprof",
+}
+FORBIDDEN_NAMES = {
+    "local.properties", "signing.properties", "bypass_splash_rules.local.json",
+    "ui.xml", "ui_a11y.xml", "ui_texts.txt",
+}
+
+
+def forbidden_artifact(path: str) -> bool:
+    parts = Path(path).parts
+    name = parts[-1].lower()
+    return (
+        any(part.lower() in FORBIDDEN_DIRECTORIES for part in parts[:-1])
+        or Path(name).suffix in FORBIDDEN_SUFFIXES
+        or name in FORBIDDEN_NAMES
+        or parts[0].lower().startswith(("tmp_", "gkd_", "compare_"))
+    )
 
 
 def git(*args: str) -> str:
@@ -63,11 +81,9 @@ def main() -> int:
     tracked = git("ls-files").splitlines()
     if len(tracked) < 200:
         failures.append(f"tracked file count suspiciously low: {len(tracked)}")
-    for pattern in FORBIDDEN_TRACKED:
-        for t in tracked:
-            if t.startswith(pattern) or pattern in t:
-                failures.append(f"accidental tracked artifact: {t}")
-                break
+    for path in tracked:
+        if forbidden_artifact(path):
+            failures.append(f"accidental tracked artifact: {path}")
 
     # healthy-history ancestry on the current branch
     merge_base = git("merge-base", HEALTHY, "HEAD")

@@ -18,7 +18,8 @@ object UiLanguage {
 
     fun context(base: Context): Context {
         if (!english) return base
-        val config = Configuration(base.resources.configuration)
+        // Override only locale; keep orientation, font scale and night mode inherited.
+        val config = Configuration()
         config.setLocales(LocaleList(Locale.ENGLISH))
         return base.createConfigurationContext(config)
     }

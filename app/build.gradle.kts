@@ -108,10 +108,6 @@ android {
         sourceSets.getByName("main").assets.setSrcDirs(listOf(layout.buildDirectory.dir("generated/publicAssets")))
     }
 
-    if (providers.gradleProperty("bypass.uiLanguage").orElse("zh").get() == "en") {
-        sourceSets.getByName("gkd").res.srcDir("src/english/res")
-    }
-
     // v1.0 signing policy:
     //  - GKD release NEVER falls back to the debug key. Without a formal
     //    signing config (GKD_STORE_FILE / GKD_STORE_PASSWORD / GKD_KEY_ALIAS /
@@ -194,6 +190,10 @@ android {
             manifestPlaceholders.putIfAbsent("channel", "bypassads")
         }
     }
+    if (providers.gradleProperty("bypass.uiLanguage").orElse("zh").get() == "en") {
+        sourceSets.getByName("gkd").res.srcDir("src/english/res")
+    }
+
     compileOptions {
         sourceCompatibility = rootProject.ext["android.javaVersion"] as JavaVersion
         targetCompatibility = rootProject.ext["android.javaVersion"] as JavaVersion

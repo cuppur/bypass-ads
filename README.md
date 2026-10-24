@@ -1,7 +1,7 @@
 <div align="center">
   <img src="app/src/main/res/drawable-nodpi/bypass_launcher_image.png" width="112" alt="Bypass Ads 图标" />
   <h1>Bypass Ads</h1>
-  <p><a href="#中文说明">中文</a> · <a href="#english">English</a></p>
+  <p><strong>简体中文</strong> | <a href="README_EN.md">English</a></p>
   <p>基于 GKD 的 Android 广告自动跳过工具，支持小程序本地视觉识别与广告诊断黑匣子。</p>
   <p>
     <a href="https://github.com/cuppur/bypass-ads/actions/workflows/ci.yml"><img src="https://github.com/cuppur/bypass-ads/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
@@ -10,7 +10,7 @@
   </p>
 </div>
 
-## 中文说明
+## 项目简介
 
 Bypass Ads 通过 Android 无障碍服务识别广告出口并尝试关闭广告，覆盖应用开屏、
 后台返回后再次出现的广告，以及部分全屏广告和营销弹窗。对于控件树无法读取的
@@ -134,7 +134,7 @@ GitHub CI 另行检查默认构建、Release / R8、FullTools 和设备测试代
 ## 规则与仓库内容
 
 - 仓库跟踪自写基线规则 `app/src/main/assets/bypass_splash_rules.json`、补强规则和安全排除配置。
-- 完整本地规则包 `bypass_splash_rules.local.json` 由本机构建生成，不提交到 GitHub。
+- 完整本地规则包（full local bundle）`bypass_splash_rules.local.json` 由本机构建生成，不提交到 GitHub。
 - 未获再分发许可的第三方规则正文及包含这些规则的自用 APK 不公开分发。
 - 构建缓存、APK、设备原始数据、日志与签名材料不进入 Git 源码仓库；经校验的公开 APK 只作为 Release 附件提供。CI 会检查误加入 Git 的本地产物。
 - `main` 是唯一开发基线。GitHub 源码 ZIP 仅包含已提交的文件。
@@ -156,117 +156,3 @@ GitHub CI 另行检查默认构建、Release / R8、FullTools 和设备测试代
 保留上游版权声明，依据 [GPL-3.0](LICENSE) 发布。
 
 软件按现状提供，不保证跳过所有广告。使用者需遵守适用法律法规，并自行确认所用第三方规则的许可范围。
-
----
-
-## English
-
-**Bypass Ads** is an Android ad-skipping app built on GKD. It uses Accessibility
-services to find ad exits, with an on-device OCR fallback for supported WeChat
-and Alipay mini-program splash ads. The default build works offline without
-the `INTERNET` permission.
-
-### Download and install
-
-Download the signed **v1.0.1** APK from [Releases](https://github.com/cuppur/bypass-ads/releases/latest):
-
-- [English APK](https://github.com/cuppur/bypass-ads/releases/download/v1.0.1/Bypass-Ads-v1.0.1-en.apk)
-- [Chinese APK](https://github.com/cuppur/bypass-ads/releases/download/v1.0.1/Bypass-Ads-v1.0.1-zh.apk)
-- [SHA-256 checksums](https://github.com/cuppur/bypass-ads/releases/download/v1.0.1/SHA256SUMS.txt)
-
-**Public APKs include only the small, self-authored baseline rule set. Coverage
-is limited.** Import compatible rules you are authorized to use for broader coverage.
-The full local bundle of third-party rules used in personal builds is not distributed.
-The automatically generated Source code ZIP/TAR files are source archives, not installers.
-
-The English and Chinese APKs share the same package (`app.bypassads`) and signing
-certificate. Installing one replaces the other; they cannot coexist. Back up your
-data before upgrading an existing personal build. Upgrade in place rather than
-uninstalling; imported rules are not deliberately cleared by the upgrade.
-
-### Features
-
-- Immediate matching, including ads shown after returning from the background
-  or appearing later on the same screen.
-- Dedicated and generic rules using control text, descriptions, IDs, layout and
-  ad evidence, including a separate countdown next to a close button.
-- Bundled, local Chinese OCR on Android 11+. For supported mini-program hosts,
-  it checks top-left ad exits and excludes the top-right mini-program exit capsule.
-- Post-action verification that distinguishes an accepted tap from confirmed closure.
-- A persistent ad blackbox with reasons, attempts, verification, failed-app counts,
-  filtering, export and manual missed-ad reports.
-- Local imports and rule teaching. No automatic upload of screenshots or raw OCR text.
-
-### Strategies and setup
-
-| Strategy | Behavior |
-| --- | --- |
-| Conservative | Established dedicated rules and explicit skip controls. Visual checks observe without tapping. |
-| Aggressive | Also permits close-type exits and limited retries when ad evidence is sufficient; allows validated visual exits. |
-| Crazy | Adds restricted structural and coordinate fallbacks in strong ad contexts, with action budgets and verification. |
-
-Install the APK, enable its accessibility service, and turn on **Automatic ad skipping**
-on Home. Review notification and battery settings to keep the service connected.
-For automatic mini-program visual exits, enable generic detection and visual checking,
-and choose Aggressive or Crazy. Open **Records** to diagnose misses or report an undetected ad.
-
-English is selected at build time and stays enabled regardless of the device language.
-The English APK localizes app-authored screens, prompts, notifications and blackbox
-explanations. It does not translate installed-app names, imported rule content,
-third-party page content or Android system screens, and it does not change the matcher.
-The OCR model and recognition coverage are the same in both APKs; an English UI
-does not imply verified coverage of all English-language apps or ads.
-
-### Build from source
-
-Requires **JDK 21+** and Android SDK. Set `sdk.dir` in `local.properties`.
-
-```sh
-# Linux / macOS: English development build
-./gradlew :app:assembleGkdDebug -Pbypass.uiLanguage=en
-```
-
-```powershell
-# Windows: English development build
-.\gradlew.bat :app:assembleGkdDebug "-Pbypass.uiLanguage=en"
-
-# Signed public Chinese + English APKs, with only the public rule fixture
-.\tools\build_public.ps1
-
-# Personal build using your own local subscription
-.\tools\build_selfuse.ps1 -SubscriptionPath "D:\rules\gkd.json5"
-```
-
-Use `-Pbypass.uiLanguage=zh` for Chinese (the default). Public APKs are written to
-`dist/public/`. The public build script uses a separate generated public asset tree and never moves or modifies the local full rule
-bundle. It verifies the packaged fixture, language,
-version, permissions, R8 model registrars and signature, then writes `SHA256SUMS.txt`.
-Signing keys and passwords stay outside the repository. Do not redistribute
-third-party rules without permission.
-
-The default `gkd` build has no network permission. The optional `fulltools` build
-includes network-enabled local debugging tools and is not the public APK offered here.
-
-### Verification and limitations
-
-The current baseline passes 246 JVM tests, including localization placeholders,
-multiline records, preserved raw evidence and the existing ad logic. Policy, safety,
-privacy and multi-source checks also pass.
-A real Alipay Star Charge splash ad was confirmed to close in about 1–2 seconds
-on 2026-10-04. Controlled fixture tests cover late ads, foreground returns,
-adjacent countdowns and excluded navigation controls.
-
-These results do not establish universal coverage. New layouts, inaccessible controls,
-protected screenshots, unreadable text or a disconnected service can still cause misses.
-Other real apps and mini-programs require separate verification.
-
-### Documentation and license
-
-- [Release notes](https://github.com/cuppur/bypass-ads/releases) · [Changelog](CHANGELOG.md)
-- [Project state](docs/PROJECT_STATE.md) · [Maintenance](HANDOVER.md) · [Tools](tools/README.md)
-- [Detailed diagnosis (Chinese)](docs/AD_SKIP_DIAGNOSIS.md) · [Permissions (Chinese)](docs/PERMISSIONS.md)
-- [Report an issue](https://github.com/cuppur/bypass-ads/issues/new/choose)
-
-Based on [GKD](https://github.com/gkd-kit/gkd), with upstream copyright notices
-retained. Licensed under [GPL-3.0](LICENSE). Provided as-is, without a guarantee
-that every ad can be skipped.

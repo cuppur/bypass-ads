@@ -38,7 +38,10 @@ jobs:
               return subprocess.check_output(['gh', 'api', '-H', 'Accept: application/octet-stream', 'repos/' + repo + '/releases/assets/' + str(asset['id'])])
           release = next(r for r in api('/releases') if r['tag_name'] == tag)
           assert release['draft'], 'Only draft releases may use staged transfer'
-          assets = {a['name']: a for a in api('/releases/' + str(release['id']) + '/assets')}
+          def release_assets():
+              pages = json.loads(subprocess.check_output(['gh', 'api', '--paginate', '--slurp', 'repos/' + repo + '/releases/' + str(release['id']) + '/assets?per_page=100']))
+              return {a['name']: a for page in pages for a in page}
+          assets = release_assets()
           manifest = json.loads(content(assets['transfer-manifest.json']))
           ref = api('/git/ref/tags/' + tag)['object']
           if ref['type'] == 'tag':
@@ -68,7 +71,7 @@ jobs:
                   subprocess.run(['gh', 'release', 'upload', tag, str(output), '--clobber'], check=True)
                   expected[name] = item['sha256']
                   print('Assembled and uploaded:', name, flush=True)
-          uploaded = {a['name']: a for a in api('/releases/' + str(release['id']) + '/assets')}
+          uploaded = release_assets()
           for name, digest in expected.items():
               asset = uploaded[name]
               assert asset['state'] == 'uploaded' and asset.get('digest') == 'sha256:' + digest

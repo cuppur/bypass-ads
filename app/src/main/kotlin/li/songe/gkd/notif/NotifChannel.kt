@@ -32,10 +32,10 @@ fun initChannel() {
     channels.forEach {
         val channel = NotificationChannel(
             it.id,
-            it.name ?: META.appName,
+            li.songe.gkd.i18n.UiLanguage.text(it.name ?: META.appName),
             NotificationManager.IMPORTANCE_LOW
         ).apply {
-            description = it.desc
+            description = it.desc?.let(li.songe.gkd.i18n.UiLanguage::text)
         }
         manager.createNotificationChannel(channel)
     }

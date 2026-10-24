@@ -68,13 +68,17 @@ android {
         minSdk = rootProject.ext["android.minSdk"] as Int
         targetSdk = rootProject.ext["android.targetSdk"] as Int
 
+        val uiLanguage = providers.gradleProperty("bypass.uiLanguage").orElse("zh").get()
+        require(uiLanguage in setOf("zh", "en")) { "bypass.uiLanguage must be zh or en" }
+        buildConfigField("String", "BYPASS_UI_LANGUAGE", "\"$uiLanguage\"")
+        manifestPlaceholders["bypassUiLanguage"] = uiLanguage
         applicationId = "app.bypassads"
-        // Bypass Ads v1.0.0 self-use version. The bundled GKD engine stays at
+        // Bypass Ads v1.0.1 public/self-use version. The bundled GKD engine stays at
         // 1.12.1 (kept as an internal constant, not advertised in the product
-        // UI). versionName is the exact release string "1.0.0" — the commit
+        // UI). versionName is the exact release string "1.0.1" — the commit
         // SHA suffix is only applied to debug builds (see GitInfo below).
-        versionCode = 100
-        versionName = "1.0.0"
+        versionCode = 101
+        versionName = "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -94,9 +98,18 @@ android {
     }
 
     buildFeatures {
+        buildConfig = true
         compose = true
         aidl = true
         resValues = true
+    }
+
+    if (providers.gradleProperty("bypass.publicBuild").orElse("false").get().toBoolean()) {
+        sourceSets.getByName("main").assets.setSrcDirs(listOf(layout.buildDirectory.dir("generated/publicAssets")))
+    }
+
+    if (providers.gradleProperty("bypass.uiLanguage").orElse("zh").get() == "en") {
+        sourceSets.getByName("gkd").res.srcDir("src/english/res")
     }
 
     // v1.0 signing policy:
@@ -227,6 +240,15 @@ kotlin {
             "-XXLanguage:+MultiDollarInterpolation",
         )
     }
+}
+
+// Generate a separate public asset tree; never move or mutate the user's local rules.
+if (providers.gradleProperty("bypass.publicBuild").orElse("false").get().toBoolean()) {
+    val preparePublicAssets by tasks.registering(Sync::class) {
+        from("src/main/assets") { exclude("bypass_splash_rules.local.json") }
+        into(layout.buildDirectory.dir("generated/publicAssets"))
+    }
+    tasks.named("preBuild") { dependsOn(preparePublicAssets) }
 }
 
 // https://developer.android.com/jetpack/androidx/releases/room?hl=zh-cn#compiler-options

@@ -26,3 +26,13 @@ Field and maintenance support:
 
 Generated bundles, device dumps, APKs, and temporary outputs are ignored by
 Git. Do not place third-party subscription bodies in the repository.
+
+Public bilingual release:
+
+- `build_public.ps1` — sign Chinese/English public APKs using the external key;
+  generate a separate public asset tree excluding the local full rule bundle.
+- `check_public_apk.py` — check public fixture hash, absence of private local rules,
+  UI build language, version, package and offline permissions.
+
+Use `-Pbypass.uiLanguage=en` for the English UI or `zh` for Chinese. Translations
+are presentation-only; never pass translated strings to rule matching or OCR.

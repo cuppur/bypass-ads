@@ -1,6 +1,6 @@
 # Bypass Ads maintenance handover
 
-`main` is the sole development baseline. Bypass Ads 1.0.0 is based on GKD,
+`main` is the sole development baseline. Bypass Ads 1.0.1 is based on GKD,
 with continuous node matching, native-app foreground-return handling,
 mini-program local OCR fallback, persistent blackbox records and custom icons.
 The architecture is documented in [PROJECT_STATE](docs/PROJECT_STATE.md).
@@ -13,7 +13,7 @@ The architecture is documented in [PROJECT_STATE](docs/PROJECT_STATE.md).
 
 The self-use script generates the local rule bundle, runs policy/JVM gates,
 builds signed R8 release, verifies reflected ML Kit constructors, and writes
-`dist/Bypass-Ads-v1.0.0-selfuse.apk`. The stable signing key is outside the
+`dist/Bypass-Ads-v1.0.1-selfuse.apk`. The stable signing key is outside the
 repository at `%USERPROFILE%\.bypass-ads\signing\`. Never commit the key,
 passwords, third-party subscription bodies or locally generated full bundles.
 The source-only CI build uses the self-written fixture and requires no secrets.
@@ -27,7 +27,7 @@ top-right mini-program exit. Preserve pre-action freshness, action ownership
 and post-action verification when changing the matcher.
 
 Run the four `tools/test_*.py` policy gates, `tools/check_repo_integrity.py`,
-and `.\gradlew.bat :app:testGkdDebugUnitTest`. Current JVM coverage is 240 tests.
+and `.\gradlew.bat :app:testGkdDebugUnitTest`. Current JVM coverage is 246 tests.
 Device tools accept an explicit connected-device serial; see [tools](tools/README.md).
 Do not uninstall or clear app data during upgrade checks. Keep controlled
 fixture results separate from real-ad results; use the blackbox to investigate
@@ -35,3 +35,14 @@ misses without retaining full UI trees or raw page content.
 
 The latest real-ad verification and known boundaries are in
 [AD_SKIP_DIAGNOSIS](docs/AD_SKIP_DIAGNOSIS.md).
+
+## Public Chinese / English release
+
+Run `tools/build_public.ps1` to create both signed public APKs and SHA-256 sums.
+The Gradle properties `bypass.publicBuild=true` and `bypass.uiLanguage=zh|en`
+select a separate generated public asset tree and the display language.
+The full local rule file is never moved or modified by public builds.
+English display translations live in `app/src/main/assets/ui_en.json`;
+`UiTranslator` applies them only at display boundaries. Never translate ad
+matching inputs, selectors, persisted raw codes or user-edited rule content.
+Upload APKs only as Release assets, together with checksums and matching source.

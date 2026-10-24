@@ -8,7 +8,7 @@ import java.io.File
 
 /**
  * v1.0 Release engineering policy (JVM): the product must expose exactly
- * versionName 1.0.0 / versionCode 100, the About page must read the real
+ * versionName 1.0.1 / versionCode 101, the About page must read the real
  * version (no hard-coded 0.1.0), and release signing must never silently
  * fall back to the debug key.
  */
@@ -26,10 +26,10 @@ class ReleasePolicyTest {
     private fun file(relative: String): File = File(repoRoot, relative)
 
     @Test
-    fun version_is_exactly_1_0_0_with_code_100() {
+    fun version_is_exactly_1_0_1_with_code_101() {
         val src = file("app/build.gradle.kts").readText()
-        assertTrue("versionName must be exactly 1.0.0", src.contains("versionName = \"1.0.0\""))
-        assertTrue("versionCode must be 100", src.contains("versionCode = 100"))
+        assertTrue("versionName must be exactly 1.0.1", src.contains("versionName = \"1.0.1\""))
+        assertTrue("versionCode must be 101", src.contains("versionCode = 101"))
         assertFalse("no stale 0.x versionName", src.contains("versionName = \"0."))
     }
 

@@ -54,8 +54,8 @@ data class Notif(
         )
         val notification = NotificationCompat.Builder(app, channel.id)
             .setSmallIcon(smallIcon)
-            .setContentTitle(title)
-            .setContentText(text)
+            .setContentTitle(li.songe.gkd.i18n.UiLanguage.text(title))
+            .setContentText(text?.let(li.songe.gkd.i18n.UiLanguage::text))
             .setContentIntent(contextIntent)
             .setOngoing(ongoing)
             .setAutoCancel(autoCancel)
@@ -68,7 +68,7 @@ data class Notif(
             )
             notification
                 .setDeleteIntent(deleteIntent)
-                .addAction(0, "停止", deleteIntent)
+                .addAction(0, li.songe.gkd.i18n.UiLanguage.text("停止"), deleteIntent)
         }
         return notification.build()
     }

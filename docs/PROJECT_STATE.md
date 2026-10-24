@@ -1,6 +1,6 @@
 # Bypass Ads project state
 
-Current baseline: `main` (2026-10-07). Version: 1.0.0.
+Current baseline: `main` (2026-10-24). Version: 1.0.1.
 Application ID: `app.bypassads`.
 
 ## Runtime
@@ -39,7 +39,16 @@ miss reports. Retention is seven days / 2000 sessions, with the latest 500 in UI
 ## Verification
 
 Run the four Python policy gates, `tools/check_repo_integrity.py`, and
-`:app:testGkdDebugUnitTest`. Current regression coverage is 240 JVM tests.
+`:app:testGkdDebugUnitTest`. Current regression coverage is 246 JVM tests.
 The real Alipay 星星充电 sample was confirmed closed in about 1–2 seconds;
 controlled TestAd coverage must remain separate from real-app coverage.
 See [AD_SKIP_DIAGNOSIS.md](AD_SKIP_DIAGNOSIS.md) for evidence and limitations.
+
+## Public bilingual builds
+
+`tools/build_public.ps1` produces signed zh/en APKs using the same package and
+certificate. Language is fixed by `-Pbypass.uiLanguage=zh|en`. Display translation
+does not modify the matcher, OCR inputs, rules or stored diagnostic codes.
+Public APKs carry only the self-written baseline fixture; the local full bundle
+is excluded via a separate generated public asset tree. APKs are Release assets,
+never tracked source files. See `docs/RELEASE_v1.0.1.md` for public coverage limits.

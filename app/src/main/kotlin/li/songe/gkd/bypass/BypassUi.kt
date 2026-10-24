@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,7 +19,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
-import androidx.compose.material3.Text
+import li.songe.gkd.i18n.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -76,13 +77,18 @@ fun BypassMetric(label: String, value: String, modifier: Modifier = Modifier) {
 fun BypassModeButton(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Button(
         onClick = onClick,
+        contentPadding = if (li.songe.gkd.i18n.UiLanguage.english) PaddingValues(horizontal = 10.dp, vertical = 8.dp) else ButtonDefaults.ContentPadding,
         colors = ButtonDefaults.buttonColors(
             containerColor = if (selected) BypassPalette.Ink else BypassPalette.SoftGray,
             contentColor = if (selected) Color.White else BypassPalette.Ink,
         ),
         shape = RoundedCornerShape(8.dp),
         modifier = modifier,
-    ) { Text(label, maxLines = 1) }
+    ) {
+        Text(label, maxLines = if (li.songe.gkd.i18n.UiLanguage.english) 2 else 1,
+            fontSize = if (li.songe.gkd.i18n.UiLanguage.english) 12.sp else androidx.compose.ui.unit.TextUnit.Unspecified,
+            textAlign = TextAlign.Center)
+    }
 }
 
 @Composable

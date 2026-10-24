@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Bypass Ads</string>
+    <string name="a11y_desc">Bypass Ads uses the Accessibility API to read necessary controls and click ad exits. When mini-program visual checking is enabled, it temporarily reads screen images to recognize ad exits on this device.\n\nRecognition runs locally without automatically uploading screen content. Visual checks do not save their images or raw OCR text.</string>
+    <string name="import_backup">Import backup</string>
+    <string name="capture_snapshot">Capture snapshot</string>
+    <string name="http_server">HTTP service</string>
+    <string name="snapshot_button">Snapshot button</string>
+    <string name="rule_match">Rule matching</string>
+    <string name="record_activity">Activity service</string>
+    <string name="record_a11y_event">Event service</string>
+</resources>

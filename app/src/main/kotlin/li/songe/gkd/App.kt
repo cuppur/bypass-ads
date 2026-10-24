@@ -158,7 +158,7 @@ class App : Application() {
     }
 
     override fun attachBaseContext(base: Context?) {
-        super.attachBaseContext(base)
+        super.attachBaseContext(base?.let(li.songe.gkd.i18n.UiLanguage::context))
         if (AndroidTarget.P) {
             HiddenApiBypass.addHiddenApiExemptions("L")
         }

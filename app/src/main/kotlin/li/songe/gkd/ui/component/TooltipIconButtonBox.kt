@@ -1,7 +1,7 @@
 package li.songe.gkd.ui.component
 
 import androidx.compose.material3.PlainTooltip
-import androidx.compose.material3.Text
+import li.songe.gkd.i18n.Text
 import androidx.compose.material3.TooltipAnchorPosition
 import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.TooltipDefaults

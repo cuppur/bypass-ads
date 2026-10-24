@@ -47,7 +47,7 @@ import androidx.compose.material.icons.outlined.Title
 import androidx.compose.material.icons.outlined.ToggleOff
 import androidx.compose.material.icons.outlined.ToggleOn
 import androidx.compose.material.icons.outlined.VerifiedUser
-import androidx.compose.material3.Icon
+import li.songe.gkd.i18n.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonColors
 import androidx.compose.material3.IconButtonDefaults
@@ -69,7 +69,7 @@ fun PerfIcon(
 ) = Icon(
     imageVector = imageVector,
     modifier = modifier,
-    contentDescription = contentDescription,
+    contentDescription = contentDescription?.let(li.songe.gkd.i18n.UiLanguage::text),
     tint = tint
 )
 
@@ -83,12 +83,12 @@ fun PerfIconButton(
     contentDescription: String? = getIconDefaultDesc(imageVector),
     onClickLabel: String? = null,
 ) = TooltipIconButtonBox(
-    contentDescription = contentDescription,
+    contentDescription = contentDescription?.let(li.songe.gkd.i18n.UiLanguage::text),
 ) {
     IconButton(
         modifier = modifier.semantics {
             if (onClickLabel != null) {
-                this.onClick(label = onClickLabel, action = null)
+                this.onClick(label = li.songe.gkd.i18n.UiLanguage.text(onClickLabel), action = null)
             }
         },
         enabled = enabled,
@@ -97,7 +97,7 @@ fun PerfIconButton(
     ) {
         PerfIcon(
             imageVector = imageVector,
-            contentDescription = contentDescription,
+            contentDescription = contentDescription?.let(li.songe.gkd.i18n.UiLanguage::text),
         )
     }
 }
@@ -111,7 +111,7 @@ fun PerfIcon(
 ) = Icon(
     painter = painterResource(id),
     modifier = modifier,
-    contentDescription = contentDescription,
+    contentDescription = contentDescription?.let(li.songe.gkd.i18n.UiLanguage::text),
     tint = tint
 )
 
@@ -125,12 +125,12 @@ fun PerfIconButton(
     contentDescription: String? = null,
     onClickLabel: String? = null,
 ) = TooltipIconButtonBox(
-    contentDescription = contentDescription,
+    contentDescription = contentDescription?.let(li.songe.gkd.i18n.UiLanguage::text),
 ) {
     IconButton(
         modifier = modifier.semantics {
             if (onClickLabel != null) {
-                this.onClick(label = onClickLabel, action = null)
+                this.onClick(label = li.songe.gkd.i18n.UiLanguage.text(onClickLabel), action = null)
             }
         },
         enabled = enabled,
@@ -139,7 +139,7 @@ fun PerfIconButton(
     ) {
         PerfIcon(
             id = id,
-            contentDescription = contentDescription,
+            contentDescription = contentDescription?.let(li.songe.gkd.i18n.UiLanguage::text),
         )
     }
 }

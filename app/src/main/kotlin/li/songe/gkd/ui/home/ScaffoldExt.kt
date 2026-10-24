@@ -1,7 +1,7 @@
 package li.songe.gkd.ui.home
 
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.material3.Text
+import li.songe.gkd.i18n.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import li.songe.gkd.ui.component.PerfTopAppBar

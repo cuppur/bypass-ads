@@ -183,6 +183,10 @@ import li.songe.gkd.util.toast
  * reachable from the normal user flow.
  */
 class MainActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: android.content.Context) {
+        super.attachBaseContext(li.songe.gkd.i18n.UiLanguage.context(newBase))
+    }
+
     val mainVm by viewModels<MainViewModel>()
     val launcher by lazy { StartActivityLauncher(this) }
     val pickContentLauncher by lazy { PickContentLauncher(this) }

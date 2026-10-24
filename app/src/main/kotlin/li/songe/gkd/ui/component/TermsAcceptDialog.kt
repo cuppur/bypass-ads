@@ -4,7 +4,7 @@ import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import li.songe.gkd.i18n.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -36,12 +36,12 @@ fun TermsAcceptDialog() {
                 Text(
                     modifier = modifier,
                     text = buildAnnotatedString {
-                        append("感谢使用 Bypass Ads！您需要阅读并同意「")
-                        append("用户协议")
-                        append("」和「")
-                        append("隐私政策")
-                        append("」（均为 GPL-3.0 开源协议下的使用声明，详见项目 LICENSE）")
-                        append("才能继续使用, 请仔细阅读相关内容")
+                        append(li.songe.gkd.i18n.UiLanguage.text("感谢使用 Bypass Ads！您需要阅读并同意「"))
+                        append(li.songe.gkd.i18n.UiLanguage.text("用户协议"))
+                        append(li.songe.gkd.i18n.UiLanguage.text("」和「"))
+                        append(li.songe.gkd.i18n.UiLanguage.text("隐私政策"))
+                        append(li.songe.gkd.i18n.UiLanguage.text("」（均为 GPL-3.0 开源协议下的使用声明，详见项目 LICENSE）"))
+                        append(li.songe.gkd.i18n.UiLanguage.text("才能继续使用, 请仔细阅读相关内容"))
                     },
                 )
             },

@@ -1,4 +1,4 @@
-# Bypass Ads v1.0.0 self-use RELEASE build.
+# Bypass Ads v1.0.1 self-use RELEASE build.
 # Requires a third-party GKD subscription (JSON/JSON5) with splash rules.
 # The complete build FAILS (never silently falls back to the small fixture)
 # when the full rule stack cannot be produced.
@@ -28,7 +28,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $generator = Join-Path $PSScriptRoot "build_splash_bundle.py"
 $localBundle = Join-Path $repoRoot "app\src\main\assets\bypass_splash_rules.local.json"
-$VERSION_NAME = "1.0.0"
+$VERSION_NAME = "1.0.1"
 $distDir = Join-Path $repoRoot "dist"
 $finalApk = Join-Path $distDir "Bypass-Ads-v$VERSION_NAME-selfuse.apk"
 $signingDir = Join-Path $env:USERPROFILE ".bypass-ads\signing"

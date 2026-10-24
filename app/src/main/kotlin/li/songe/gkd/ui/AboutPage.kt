@@ -17,11 +17,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Icon
+import li.songe.gkd.i18n.Icon
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
+import li.songe.gkd.i18n.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -256,16 +256,16 @@ fun AboutPage() {
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary,
                                     )
-                                    append("感谢您愿意花时间反馈，")
+                                    append(li.songe.gkd.i18n.UiLanguage.text("感谢您愿意花时间反馈，"))
                                     withStyle(style = highlightStyle) {
-                                        append("Bypass Ads 内置开屏广告规则，仅接受应用本体功能相关的反馈")
+                                        append(li.songe.gkd.i18n.UiLanguage.text("Bypass Ads 内置开屏广告规则，仅接受应用本体功能相关的反馈"))
                                     }
-                                    append("\n\n")
-                                    append("请先判断是不是内置规则的问题，如果是，您可以在「关于」页查看规则来源。")
+                                    append(li.songe.gkd.i18n.UiLanguage.text("\n\n"))
+                                    append(li.songe.gkd.i18n.UiLanguage.text("请先判断是不是内置规则的问题，如果是，您可以在「关于」页查看规则来源。"))
                                     withStyle(style = highlightStyle) {
-                                        append("如果您已经确信是 Bypass Ads 应用本体的问题")
+                                        append(li.songe.gkd.i18n.UiLanguage.text("如果您已经确信是 Bypass Ads 应用本体的问题"))
                                     }
-                                    append("，可点击下方继续反馈")
+                                    append(li.songe.gkd.i18n.UiLanguage.text("，可点击下方继续反馈"))
                                 })
                             },
                             confirmText = "继续",
@@ -370,7 +370,7 @@ fun AboutPage() {
 @Composable
 private fun exportPlayTipTemplate(): AnnotatedString {
     return buildAnnotatedString {
-        append("当前导出的 APK 文件只能在已安装 Google 框架的设备上才能使用，否则安装打开后会提示报错，")
+        append(li.songe.gkd.i18n.UiLanguage.text("当前导出的 APK 文件只能在已安装 Google 框架的设备上才能使用，否则安装打开后会提示报错，"))
         withLink(
             LinkAnnotation.Url(
                 ShortUrlSet.URL13,
@@ -382,9 +382,9 @@ private fun exportPlayTipTemplate(): AnnotatedString {
                 )
             )
         ) {
-            append("建议点此从官网下载")
+            append(li.songe.gkd.i18n.UiLanguage.text("建议点此从官网下载"))
         }
-        append("，或点击下方继续操作")
+        append(li.songe.gkd.i18n.UiLanguage.text("，或点击下方继续操作"))
     }
 }
 

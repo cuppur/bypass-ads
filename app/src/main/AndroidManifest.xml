@@ -42,6 +42,9 @@
         android:theme="@style/AppTheme">
 
         <meta-data
+            android:name="bypassUiLanguage"
+            android:value="${bypassUiLanguage}" />
+        <meta-data
             android:name="channel"
             android:value="${channel}" />
         <meta-data

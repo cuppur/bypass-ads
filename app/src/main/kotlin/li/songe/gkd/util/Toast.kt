@@ -44,7 +44,7 @@ fun toast(
         return
     }
     if (forced || isActivityVisible || OverlayWindowService.isAnyAlive) {
-        Toaster.show(text)
+        Toaster.show(li.songe.gkd.i18n.UiLanguage.text(text.toString()))
     }
     if (loc.isNotEmpty()) {
         LogUtils.d(text, loc = loc)
@@ -158,7 +158,7 @@ private fun showA11yToast(message: CharSequence) {
         return
     }
     val textView = TextView(app).apply {
-        text = message
+        text = li.songe.gkd.i18n.UiLanguage.text(message.toString())
         id = android.R.id.message
         gravity = Gravity.CENTER
         updateToastView()

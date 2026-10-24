@@ -1,5 +1,15 @@
 # Bypass Ads 更新记录
 
+## 1.0.1（2026-10-24）
+
+- 新增英文界面及英文系统资源，提供中文、英文两个签名公开 APK。
+- 补充动态文本、权限提示、通知和黑匣子原因说明的显示层翻译；保留匹配规则与原始诊断数据。
+- README 增加完整英文说明、语言选择下载入口和公开基础规则覆盖说明。
+- 新增公开构建与 APK 检查脚本，防止打包本机第三方完整规则。
+
+English: adds English UI, signed Chinese/English public APKs, bilingual documentation,
+localization regression tests and checks that exclude private full rule bundles.
+
 ## 1.0.0 当前基线（2026-10-07）
 
 - 增强通用开屏识别、相邻独立倒计时、控件 ID / 描述识别和执行后验证。

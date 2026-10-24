@@ -87,6 +87,12 @@ jobs:
           --manifest app/build/intermediates/merged_manifests/gkdRelease/processGkdReleaseManifest/AndroidManifest.xml
           --mapping app/build/outputs/mapping/gkdRelease/mapping.txt
 
+      - name: English public build and localization tests
+        run: |
+          ./gradlew :app:testGkdDebugUnitTest :app:assembleGkdRelease -Pbypass.uiLanguage=en -Pbypass.publicBuild=true --console=plain
+          python tools/check_public_apk.py --apk app/build/outputs/apk/gkd/release/app-gkd-release-unsigned.apk --language en --aapt "$ANDROID_HOME/build-tools/37.0.0/aapt"
+          python tools/check_mlkit_release.py --manifest app/build/intermediates/merged_manifests/gkdRelease/processGkdReleaseManifest/AndroidManifest.xml --mapping app/build/outputs/mapping/gkdRelease/mapping.txt
+
       - name: Assemble FullTools APK
         run: ./gradlew :app:assembleFulltoolsDebug --console=plain
 

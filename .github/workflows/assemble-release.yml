@@ -1,0 +1,78 @@
+name: Assemble staged release APKs
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Draft release tag with a verified transfer manifest
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-transfer-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - name: Verify, assemble and attach signed APKs
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, re, subprocess, tempfile
+          from pathlib import Path
+          repo = os.environ['GH_REPO']
+          tag = os.environ['RELEASE_TAG']
+          assert re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+', tag)
+          def api(path):
+              return json.loads(subprocess.check_output(['gh', 'api', 'repos/' + repo + path]))
+          def content(asset):
+              return subprocess.check_output(['gh', 'api', '-H', 'Accept: application/octet-stream', 'repos/' + repo + '/releases/assets/' + str(asset['id'])])
+          release = next(r for r in api('/releases') if r['tag_name'] == tag)
+          assert release['draft'], 'Only draft releases may use staged transfer'
+          assets = {a['name']: a for a in api('/releases/' + str(release['id']) + '/assets')}
+          manifest = json.loads(content(assets['transfer-manifest.json']))
+          ref = api('/git/ref/tags/' + tag)['object']
+          if ref['type'] == 'tag':
+              ref = api('/git/tags/' + ref['sha'])['object']
+          assert ref['type'] == 'commit' and ref['sha'] == manifest['source_commit']
+          assert manifest['version'] == 1 and len(manifest['files']) == 2
+          cleanup = {'transfer-manifest.json'}
+          expected = {}
+          with tempfile.TemporaryDirectory() as folder:
+              for item in manifest['files']:
+                  name = item['name']
+                  assert re.fullmatch(r'Bypass-Ads-' + re.escape(tag) + r'-(en|zh)\.apk', name)
+                  assert name not in expected and 0 < item['bytes'] < 256 * 1024 * 1024
+                  assert re.fullmatch(r'[0-9a-f]{64}', item['sha256'])
+                  assert 0 < len(item['parts']) <= 128
+                  output = Path(folder) / name
+                  with output.open('wb') as stream:
+                      for index, part in enumerate(item['parts']):
+                          assert part['name'] == 'transfer-' + name + '.part' + str(index).zfill(3)
+                          data = content(assets[part['name']])
+                          assert len(data) == part['bytes'] <= 2 * 1024 * 1024
+                          assert hashlib.sha256(data).hexdigest() == part['sha256']
+                          stream.write(data)
+                          cleanup.add(part['name'])
+                  assert output.stat().st_size == item['bytes']
+                  assert hashlib.sha256(output.read_bytes()).hexdigest() == item['sha256']
+                  subprocess.run(['gh', 'release', 'upload', tag, str(output), '--clobber'], check=True)
+                  expected[name] = item['sha256']
+                  print('Assembled and uploaded:', name, flush=True)
+          uploaded = {a['name']: a for a in api('/releases/' + str(release['id']) + '/assets')}
+          for name, digest in expected.items():
+              asset = uploaded[name]
+              assert asset['state'] == 'uploaded' and asset.get('digest') == 'sha256:' + digest
+          for name in cleanup:
+              subprocess.run(['gh', 'api', '--method', 'DELETE', 'repos/' + repo + '/releases/assets/' + str(assets[name]['id'])], check=True)
+          print('Both APK hashes verified; staging assets removed. Release remains a draft.')
+          PY

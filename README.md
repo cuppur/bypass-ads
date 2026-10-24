@@ -1,77 +1,133 @@
-# Bypass Ads
+<div align="center">
+  <img src="app/src/main/res/drawable-nodpi/bypass_launcher_image.png" width="112" alt="Bypass Ads 图标" />
+  <h1>Bypass Ads</h1>
+  <p>基于 GKD 的 Android 广告自动跳过工具，支持小程序本地视觉识别与广告诊断黑匣子。</p>
+  <p>
+    <a href="https://github.com/cuppur/bypass-ads/actions/workflows/ci.yml"><img src="https://github.com/cuppur/bypass-ads/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+    <a href="https://github.com/cuppur/bypass-ads/releases"><img src="https://img.shields.io/github/v/release/cuppur/bypass-ads" alt="最新源码版本" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="GPL-3.0" /></a>
+  </p>
+</div>
 
-完全离线的 Android 开屏广告自动跳过工具。安装后开启无障碍服务即可，无需联网、无需导入订阅、无需手动配置：内置开屏广告规则在首次启动时自动初始化并默认启用。
+Bypass Ads 通过 Android 无障碍服务识别广告出口并尝试关闭广告，覆盖应用开屏、
+后台返回后再次出现的广告，以及部分全屏广告和营销弹窗。对于控件树无法读取的
+微信、支付宝小程序开屏广告，提供完全在设备本地运行的中文 OCR 补查。
 
-## 特性
+**当前发布为源码版。** [Releases](https://github.com/cuppur/bypass-ads/releases)
+提供版本说明及 GitHub 自动生成的源码包，不附带本机完整规则自用 APK。
+仓库内置的是少量自写基线规则，用于开发与测试；完整覆盖需要自行准备规则并构建。
 
-- **完全离线**：默认 APK 不含 `INTERNET` 权限，运行时无任何网络请求。
-- **开箱即用**：首次安装自动内置广告规则（仓库跟踪的是小型自写基线夹具；完整自用规则包由本机构建生成），默认启用，无需导入订阅。
-- **四类广告**：开屏 / 全屏·插屏 / 营销弹窗 / 其它可关闭广告。
-- **三档策略**：保守（成熟专用规则 + 明确跳过语义）→ 激进（确认广告上下文后的
-  关闭/Close/ad_close/×）→ 彻底疯狂（进一步尝试结构型关闭与受限坐标，仅限强广告
-  上下文）。切换立即生效，策略按会话记录。
-- **Records**：成功/失败记录全部来自广告会话（结果需验证确认），显示发生时策略、
-  动作次数、响应延迟与最终出口类型；统计只计"已确认成功"的会话。
-- **小程序视觉补查**：Android 11+ 使用随包内置的中文 OCR 模型识别微信、支付宝小程序左上角的广告出口及旁边独立倒计时。激进和彻底疯狂策略在证据满足时执行，排除右上角退出小程序控件，点击前后用新鲜画面验证；画面与 OCR 原文只在内存中处理。
-- **持续识别**：进入应用立即匹配，支持后台返回后的广告和同一页面稍后出现的广告。
-- **记录黑匣子**：保留匹配、等待、动作和验证的原因，支持失败应用数量汇总、筛选、导出与手动补记漏跳；区分已确认成功、未成功和待诊断。
-- **Teach**：失败快照可一键教 Bypass Ads 跳过；"开始一次验证"式验证（armed retest，
-  验证窗口结束才判失败，首个未匹配不判负）。
-- **总开关**：首页一键"自动跳过广告"开关，关闭即暂停全部规则执行。
-- **Default offline / FullTools**：默认 `gkd` flavor 完全离线；`fulltools` 额外提供
-  本机 HTTP 检查等高级工具（含 INTERNET，仅本机用途）。
-- **品牌化**：包名 `app.bypassads`（debug 为 `app.bypassads.debug`）。
+## 能做什么
+
+- **即时与持续匹配**：进入应用后立即识别，支持后台返回和同一页面稍后出现的广告。
+- **通用识别与专用规则结合**：综合文字、控件描述、资源 ID、页面结构和广告证据定位出口，支持“关闭”旁边带独立倒计时的布局。
+- **小程序本地视觉补查**：Android 11+ 使用随包内置的中文 OCR 模型，识别支持的微信、支付宝小程序左上角广告出口；排除右上角退出小程序控件。
+- **结果验证**：区分“系统接受了点击”和“广告已确认关闭”，结合新鲜页面或画面证据核对结果。
+- **广告黑匣子**：按广告会话记录识别来源、等待原因、动作尝试与验证结果；支持失败应用数量汇总、筛选、导出和手动补记漏跳。
+- **本地规则与教学**：支持本地规则导入，以及从失败诊断进入教学与验证流程。
+- **离线运行**：默认 `gkd` 构建不含 `INTERNET` 权限。OCR 模型内置，识别画面和原始 OCR 文本只在内存处理，不自动上传。
+
+## 三种跳过策略
+
+| 策略 | 行为 |
+| --- | --- |
+| 保守 | 使用专用规则及明确的跳过语义；小程序视觉通道只观察，不自动点击。 |
+| 激进 | 在确认广告上下文后，进一步尝试关闭类出口，并允许证据满足的小程序视觉点击。 |
+| 彻底疯狂 | 在强广告上下文中，额外允许受限的结构型出口与坐标补救；仍受执行预算和结果验证约束。 |
+
+策略切换立即生效。更积极的策略不能保证覆盖所有广告，建议先使用保守模式，
+再根据实际漏跳情况调整；小程序视觉自动跳过需要选择激进或彻底疯狂。
+
+## 开始使用
+
+1. 按下文构建并安装应用。正式包名为 `app.bypassads`，Debug 包名为 `app.bypassads.debug`。
+2. 在应用引导下开启无障碍服务及首页“自动跳过广告”开关。
+3. 按需设置通知、电池优化与后台运行权限，确保服务持续连接。
+4. 在广告设置中选择策略；使用小程序视觉补查时，同时开启通用识别与视觉补查开关。
+5. 遇到漏跳时，进入“记录”查看原因、失败应用数量，或手动补记一次漏跳，保留后续排查依据。
 
 ## 构建
 
-需要 JDK 21+（构建插件的最低要求）与 Android SDK（`local.properties` 配置 `sdk.dir`）：
+需要 **JDK 21+** 与 Android SDK。使用 `local.properties` 配置 `sdk.dir`。
 
-自用正式版（推荐，单命令产出已签名 Release APK）：
+### 开发版
 
-```
-.\tools\build_selfuse.ps1 -SubscriptionPath D:\rules\gkd.json5
-```
+Windows PowerShell：
 
-该脚本会：生成完整本地规则包 → 运行策略/JVM 测试 → `assembleGkdRelease`（R8 + 资源裁剪）→
-APK 权限/包名/版本/allowBackup/内置规则 SHA 检查 → ML Kit 的 R8 反射构造方法检查 → apksigner 验签 → 输出
-`dist\Bypass-Ads-v1.0.0-selfuse.apk`。
-
-- 签名：优先复用配置的 `GKD_STORE_*`；否则首次自动在
-  `%USERPROFILE%\.bypass-ads\signing\` 创建长期自用密钥（密码仅存本机，后续构建复用同一密钥）。
-- Release 构建**永不静默回退 debug 密钥**：未配置正式签名时 Gradle 只产出未签名 Release
-  （供 CI/R8 验证），本脚本会拒绝输出“正式 APK”。
-- 开发构建：
-
-```
+```powershell
 .\gradlew.bat :app:assembleGkdDebug
 ```
 
-产物：`app/build/outputs/apk/gkd/debug/app-gkd-debug.apk`
+Linux / macOS：
 
-> 本机若遇 Kotlin daemon 增量缓存损坏（`class-attributes.tab is already registered`），
-> `gradle.properties` 已内置 `kotlin.incremental=false` + `kotlin.compiler.execution.strategy=in-process` 规避。
+```sh
+./gradlew :app:assembleGkdDebug
+```
 
-## 内置规则
+输出：`app/build/outputs/apk/gkd/debug/app-gkd-debug.apk`。
+开发版使用仓库自写基线规则；如果本地存在生成的完整规则包，构建会一并打包。
 
-- 仓库只跟踪自写的基线夹具 `app/src/main/assets/bypass_splash_rules.json`（用于构建与测试）。
-- 自用完整构建经 `tools/build_selfuse.ps1` 从本机第三方订阅生成 full local bundle
-  （`app/src/main/assets/bypass_splash_rules.local.json`，已 gitignore）。
-- 未获再分发许可的第三方规则正文不进入本仓库；包含这类规则的 self-use APK 仅限本机自用，
-  不公开分发。
+### 本机完整规则自用版
 
-## 当前基线与验证
+在 Windows PowerShell 中，提供自行准备的 GKD 格式订阅文件：
 
-`main` 是唯一开发基线。当前源码包含通用跳过、QQ 音乐后台返回识别、小程序节点和本地视觉补强、持久化黑匣子、服务状态同步及新图标。240 项 JVM 回归以及策略、安全、多源和隐私检查已通过；支付宝“星星充电”的真实广告已验证约 1–2 秒自动关闭。其他小程序的实际覆盖仍需逐个验证，测试应用的通过不代表所有真实页面都能跳过。
+```powershell
+.\tools\build_selfuse.ps1 -SubscriptionPath "D:\rules\gkd.json5"
+```
 
-排查依据与已知边界见 [广告跳过诊断](docs/AD_SKIP_DIAGNOSIS.md)，维护入口见 [HANDOVER](HANDOVER.md) 和 [工具说明](tools/README.md)。
+脚本生成本地规则包，运行策略和 JVM 检查，构建经过 R8 优化的 Release，
+核对权限、包名、版本、规则哈希与 ML Kit 反射注册构造方法，最后验签并输出：
 
-GitHub 仅保存源码、必要资源、自写规则夹具、测试及维护文档。构建缓存、APK、
-设备原始数据、签名材料与第三方完整规则包均不提交；CI 的仓库完整性检查会拦截
-误加入 Git 的本地产物。GitHub 自动生成的源码下载包来自已提交的文件。
+```text
+dist/Bypass-Ads-v1.0.0-selfuse.apk
+```
 
-## 免责声明
+签名优先复用 `GKD_STORE_*` 配置；否则在
+`%USERPROFILE%\.bypass-ads\signing\` 创建并复用长期自用密钥。
+签名材料只存本机。未配置正式签名时，Gradle 可产出未签名 Release，
+自用构建脚本会拒绝将其作为正式安装包交付。
 
-**本项目基于 [GKD](https://github.com/gkd-kit/gkd) 修改，依据 [GPL-3.0](/LICENSE) 发布。软件按现状提供，无担保。使用者需遵守适用法律法规。**
+### 构建类型
 
-- 上游项目：[gkd-kit/gkd](https://github.com/gkd-kit/gkd)（GKD v1.12.1 基线，commit `5a00f84`）
-- 本仓库保留 GKD 的全部 GPL-3.0 源码与版权声明。
+| 类型 | 用途 |
+| --- | --- |
+| `gkd` | 默认离线产品构建，不含 `INTERNET` 权限。 |
+| `fulltools` | 高级工具构建，包含本机 HTTP 检查等网络能力及 `INTERNET` 权限。 |
+
+## 已验证范围与限制
+
+当前功能基线通过 **240 项 JVM 回归**，以及策略、安全排除、多源、隐私和仓库完整性检查。
+GitHub CI 另行检查默认构建、Release / R8、FullTools 和设备测试代码的编译。
+
+2026-10-04 的真实手机验证中，支付宝“星星充电”开屏广告在约 **1–2 秒**内自动关闭，
+并回到小程序首页。另有受控测试覆盖晚出现广告、后台返回、独立倒计时、右上角退出控件排除和结果验证。
+
+这些结果不代表全部应用或小程序都能跳过。广告布局更新、没有可辨认出口文字、
+系统禁止截图、服务断开等情况仍可能造成漏跳。微信、支付宝中的不同小程序需要分别验证。
+详细依据见 [广告跳过诊断](docs/AD_SKIP_DIAGNOSIS.md)。
+
+## 规则与仓库内容
+
+- 仓库跟踪自写基线规则 `app/src/main/assets/bypass_splash_rules.json`、补强规则和安全排除配置。
+- 完整本地规则包 `bypass_splash_rules.local.json` 由本机构建生成，不提交到 GitHub。
+- 未获再分发许可的第三方规则正文及包含这些规则的自用 APK 不公开分发。
+- 构建缓存、APK、设备原始数据、日志与签名材料不进入源码仓库；CI 会检查误加入 Git 的本地产物。
+- `main` 是唯一开发基线。GitHub 源码 ZIP 仅包含已提交的文件。
+
+## 文档与反馈
+
+- [版本更新](CHANGELOG.md) · [发布说明](https://github.com/cuppur/bypass-ads/releases)
+- [广告跳过诊断与已知边界](docs/AD_SKIP_DIAGNOSIS.md)
+- [权限说明](docs/PERMISSIONS.md) · [项目状态](docs/PROJECT_STATE.md)
+- [维护交接](HANDOVER.md) · [构建与诊断工具](tools/README.md)
+- [提交问题](https://github.com/cuppur/bypass-ads/issues/new/choose) · [参与贡献](CONTRIBUTING.md)
+
+反馈漏跳时，请说明应用或小程序名称、宿主、策略、广告出口的文字与位置，
+并优先提供“记录”中的诊断信息。分享前检查是否含有个人信息。
+
+## 致谢与许可证
+
+本项目基于 [GKD](https://github.com/gkd-kit/gkd) 修改，沿用 GKD 1.12.1 基线，
+保留上游版权声明，依据 [GPL-3.0](LICENSE) 发布。
+
+软件按现状提供，不保证跳过所有广告。使用者需遵守适用法律法规，并自行确认所用第三方规则的许可范围。
